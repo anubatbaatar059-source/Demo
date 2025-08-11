@@ -6,26 +6,42 @@
   <title>WebAR (Unity + Alpha Video)</title>
   <style>
     html,body{margin:0;height:100%;background:#000;overflow:hidden}
+
     /* Арын камер */
     #cam{
       position:fixed; inset:0; width:100%; height:100%;
       object-fit:cover; z-index:0; background:#000;
-      transform:scaleX(-1); /* урд камер сонгогдвол тольдохоос сэргийлнэ */
+      /* Хэрэв урд камер сонгогдвол тольдохоос сэргийлнэ */
+      transform:scaleX(-1);
     }
+
     /* Unity canvas (тунгалаг) */
     #unity-canvas{
       position:fixed; inset:0; width:100vw; height:100vh;
       display:block; z-index:1; background:transparent !important;
     }
-    /* Alpha видеоны давхаргууд */
-    .overlay{
-      position:fixed; inset:0; width:100%; height:100%;
-      object-fit:contain; z-index:2; pointer-events:none; display:none;
+
+    /* Видеог барих gesture wrapper */
+    #overlay-wrap{
+      position:fixed; inset:0; z-index:2;
+      display:none;           /* видео гарах үед block болно */
+      touch-action:none;      /* pointer/gesture авахын тулд */
+      background:transparent;
     }
+
+    /* Alpha видеонууд */
+    .overlay{
+      position:absolute; inset:0; width:100%; height:100%;
+      object-fit:contain; pointer-events:none; display:none;
+      background:transparent;
+      transform-origin:center center; /* масштаб төвөөс */
+    }
+
     /* UI */
     #ui{position:fixed; inset:0; display:grid; place-items:center; z-index:3; pointer-events:none}
     .btn{pointer-events:auto; padding:14px 22px; border:0; border-radius:12px; font-size:16px; background:#fff; color:#111; cursor:pointer}
     #exerciseBtn{position:fixed; bottom:24px; left:50%; transform:translateX(-50%); display:none}
+
     /* Loading / Autoplay fallback */
     #loading{position:fixed; inset:0; display:grid; place-items:center; z-index:1; color:#fff}
     #tap{position:fixed; inset:0; display:none; place-items:center; z-index:4; background:rgba(0,0,0,.6); color:#fff; font:600 16px system-ui}
@@ -40,9 +56,11 @@
   <canvas id="unity-canvas" tabindex="-1"></canvas>
   <div id="loading">Түр хүлээнэ үү…</div>
 
-  <!-- Alpha видеонууд -->
-  <video id="intro" class="overlay" playsinline muted></video>
-  <video id="exercise" class="overlay" playsinline muted></video>
+  <!-- Alpha видеонууд (gesture wrapper-тай) -->
+  <div id="overlay-wrap">
+    <video id="intro" class="overlay" playsinline muted></video>
+    <video id="exercise" class="overlay" playsinline muted></video>
+  </div>
 
   <!-- UI -->
   <div id="ui"><button id="exerciseBtn" class="btn">Дасгал</button></div>
@@ -82,26 +100,27 @@
     document.body.appendChild(script);
   </script>
 
-  <!-- ===== WebAR логик (камера + alpha видео) ===== -->
+  <!-- ===== WebAR логик (камера + alpha видео + gesture) ===== -->
   <script>
     // === ТАНЫ ВИДЕО URL-ууд (зайлшгүй HTTPS) ===
     const INTRO_URL    = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
     const EXERCISE_URL = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
 
-    // Хэрэв iOS HEVC-with-alpha fallback бэлэн бол доорхыг идэвхжүүлж 2дахь source болгон нэмээрэй:
+    // iOS HEVC-with-alpha fallback байвал хоёр дахь source болгон нэмээрэй:
     // const INTRO_IOS    = "https://.../output_alpha_hevc.mp4";
     // const EXERCISE_IOS = "https://.../dasgal_hevc.mp4";
 
-    const cam        = document.getElementById('cam');
-    const intro      = document.getElementById('intro');
-    const exercise   = document.getElementById('exercise');
-    const exerciseBtn= document.getElementById('exerciseBtn');
-    const tap        = document.getElementById('tap');
+    const cam         = document.getElementById('cam');
+    const wrap        = document.getElementById('overlay-wrap');
+    const intro       = document.getElementById('intro');
+    const exercise    = document.getElementById('exercise');
+    const exerciseBtn = document.getElementById('exerciseBtn');
+    const tap         = document.getElementById('tap');
 
     // Intro-г 1 удаа л үзүүлэх
     const INTRO_SEEN_KEY = "introSeen_v1";
-    const hasSeenIntro = () => localStorage.getItem(INTRO_SEEN_KEY) === "1";
-    const markIntroSeen = () => localStorage.setItem(INTRO_SEEN_KEY, "1");
+    const hasSeenIntro   = () => localStorage.getItem(INTRO_SEEN_KEY) === "1";
+    const markIntroSeen  = () => localStorage.setItem(INTRO_SEEN_KEY, "1");
 
     // Камер (арын) асгах
     async function startCamera() {
@@ -150,6 +169,89 @@
       }
     }
 
+    // ---- Gesture (drag + pinch-zoom) ----
+    let active = null;               // одоогийн идэвхтэй видео
+    let startDist = 0, startScale = 1, scale = 1;
+    let startX = 0, startY = 0, tx = 0, ty = 0;
+
+    function setTransform() {
+      if (!active) return;
+      active.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    }
+
+    function getDist(t0, t1) {
+      const dx = t0.clientX - t1.clientX;
+      const dy = t0.clientY - t1.clientY;
+      return Math.hypot(dx, dy);
+    }
+
+    // Drag (pointer)
+    wrap.addEventListener('pointerdown', e => {
+      wrap.setPointerCapture(e.pointerId);
+      startX = e.clientX - tx;
+      startY = e.clientY - ty;
+    });
+    wrap.addEventListener('pointermove', e => {
+      if (!active) return;
+      tx = e.clientX - startX;
+      ty = e.clientY - startY;
+      setTransform();
+    });
+
+    // Pinch-zoom (touch)
+    let touches = [];
+    wrap.addEventListener('touchstart', (e) => {
+      touches = e.touches;
+      if (touches.length === 1) {
+        startX = touches[0].clientX - tx;
+        startY = touches[0].clientY - ty;
+      } else if (touches.length === 2) {
+        startDist  = getDist(touches[0], touches[1]);
+        startScale = scale;
+      }
+    }, {passive:false});
+
+    wrap.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      touches = e.touches;
+      if (!active) return;
+      if (touches.length === 1) {
+        tx = touches[0].clientX - startX;
+        ty = touches[0].clientY - startY;
+        setTransform();
+      } else if (touches.length === 2) {
+        const d = getDist(touches[0], touches[1]);
+        scale = Math.max(0.2, Math.min(5, startScale * (d / startDist)));
+        setTransform();
+      }
+    }, {passive:false});
+
+    // Давхар товшвол reset
+    let lastTap = 0;
+    wrap.addEventListener('click', () => {
+      const now = Date.now();
+      if (now - lastTap < 300) {
+        scale = 1; tx = 0; ty = 0; setTransform();
+      }
+      lastTap = now;
+    });
+
+    // Туслах функцууд
+    function showIntro() {
+      active = intro;
+      wrap.style.display = "block";
+      intro.style.display = "block";
+    }
+    function hideIntro() {
+      intro.style.display = "none";
+      if (active === intro) active = null;
+    }
+    function showExercise() {
+      active = exercise;
+      wrap.style.display = "block";
+      exercise.style.display = "block";
+    }
+
     // Урсгал: хуудсыг нээнгүүт permission → intro (эсвэл шууд товч)
     async function boot() {
       await startCamera();
@@ -161,8 +263,10 @@
       exercise.loop = true;  // дасгал loop
 
       if (!hasSeenIntro()) {
+        // Эхлэхэд байрлалыг цэвэрлэе
+        scale = 1; tx = 0; ty = 0; setTransform();
+        showIntro();
         intro.currentTime = 0;
-        intro.style.display = "block";
         await safePlay(intro);
       } else {
         exerciseBtn.style.display = "inline-block";
@@ -171,15 +275,17 @@
 
     // Intro дуусмагц → товч гарна, дахиж intro үзэгдэхгүй
     intro.addEventListener('ended', () => {
-      intro.style.display = "none";
+      hideIntro();
       markIntroSeen();
       exerciseBtn.style.display = "inline-block";
     });
 
     // “Дасгал” товч → дасгалын видео loop-той
     exerciseBtn.addEventListener('click', async () => {
+      // эхлэх бүрт байрлалыг default болгоё
+      scale = 1; tx = 0; ty = 0; setTransform();
+      showExercise();
       exercise.currentTime = 0;
-      exercise.style.display = "block";
       await safePlay(exercise);
     });
 
