@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Intro→Меню→Дасгал (Audio, Drag & Zoom)</title>
+  <title>WebAR — Intro→Меню→Дасгал (Fixed AR Feel + Audio, Drag & Zoom)</title>
   <style>
     :root { --z-cam:0; --z-canvas:1; --z-video:2; --z-menu:3; --z-toast:4; }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial}
@@ -21,45 +21,63 @@
       background:transparent!important;z-index:var(--z-canvas);display:none;
     }
 
-    /* Gesture wrapper: альфа видеонууд дээрх drag/zoom эвентүүд энд ирнэ */
+    /* 3D мэдрэмж өгөхөд perspective */
     #overlay-wrap{
       position:fixed;inset:0;z-index:var(--z-video);
-      touch-action:none;          /* touch gesture авахад хэрэгтэй */
-      display:none;               /* видео гарч ирэх үед block болно */
+      display:none; touch-action:none; perspective:1000px;
     }
 
-    /* Альфа видеонууд */
+    /* Альфа видеонууд — дэлгэцийн доод төвд anchor-тай (fixed AR feel) */
     .overlay{
-      position:absolute;inset:0;width:100%;height:100%;
-      object-fit:contain;background:transparent;display:none;
-      pointer-events:none;        /* эвентүүд wrapper дээр авна */
+      position:absolute; left:50%; top:70%;
+      /* өргөнийг дэлгэцийн өргөнөөр хянаад өндөрөө хадгална */
+      width:60vw; max-width:800px; height:auto;
+      transform:translate(-50%,-50%) rotateX(10deg) scale(1);
       transform-origin:center center;
-      transform:translate(0px,0px) scale(1);
+      object-fit:contain; background:transparent; display:none;
+      pointer-events:none;
+      filter: drop-shadow(0 12px 30px rgba(0,0,0,.35)); /* газарт буусан мэт */
+      animation: popIn .6s ease both;
     }
+    @keyframes popIn{ from{ opacity:0; transform:translate(-50%,-40%) rotateX(16deg) scale(.8) } to{ opacity:1; transform:translate(-50%,-50%) rotateX(10deg) scale(1) } }
 
-    /* Меню */
+    /* Меню — доод төвд, босоо цуваа, stagger анимтай */
     #menu{
-      position:fixed;inset:0;display:flex;align-items:flex-end;justify-content:center;
+      position:fixed;inset:0;display:none;align-items:flex-end;justify-content:center;
       padding:28px;pointer-events:none;z-index:var(--z-menu);
-      background:linear-gradient(to top, rgba(0,0,0,.5), rgba(0,0,0,0) 40%);
-      animation: fadeIn .6s ease both; display:none;
+      background:linear-gradient(to top, rgba(0,0,0,.5), rgba(0,0,0,0) 45%);
+      animation: fadeIn .5s ease both;
     }
-    .menu-inner{display:flex;gap:12px;pointer-events:auto;transform:translateY(15px);animation: slideUp .6s .1s ease both}
+    .menu-inner{
+      width:min(90vw,360px); display:flex; flex-direction:column; gap:12px;
+      pointer-events:auto; transform:translateY(20px); animation: slideUp .4s .1s ease both;
+    }
     .btn{
       padding:14px 18px;border:0;border-radius:14px;cursor:pointer;
       background:#fff;color:#111;font-weight:600;font-size:16px;
-      box-shadow:0 8px 28px rgba(0,0,0,.25);transform:translateY(0);transition:transform .15s ease;
+      box-shadow:0 8px 28px rgba(0,0,0,.25); transform:translateY(0); transition:transform .12s ease, opacity .25s ease;
+      opacity:0; animation: itemIn .35s ease forwards;
     }
+    /* stagger */
+    .btn:nth-child(1){ animation-delay:.12s }
+    .btn:nth-child(2){ animation-delay:.20s }
+    .btn:nth-child(3){ animation-delay:.28s }
     .btn:active{transform:translateY(1px)}
-
-    /* Анимаци */
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-    @keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes slideUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes itemIn{from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:translateY(0)}}
 
     /* Жижиг сануулга (autoplay policy) */
     #toast{
       position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:var(--z-toast);
-      background:rgba(0,0,0,.7);color:#fff;border-radius:10px;padding:10px 14px;font-size:13px;display:none
+      background:rgba(0,0,0,.72);color:#fff;border-radius:10px;padding:10px 14px;font-size:13px;display:none
+    }
+
+    /* Placement mode badge */
+    #badge{
+      position:fixed; left:50%; bottom:92px; transform:translateX(-50%);
+      background:rgba(0,0,0,.6); color:#fff; padding:8px 12px; border-radius:12px; font-size:12px;
+      display:none; z-index:var(--z-menu)
     }
 
     /* Reset товч (сонголт) */
@@ -76,7 +94,7 @@
   <!-- Unity canvas (шаардлагатай бол ашиглаж болно) -->
   <canvas id="unity-canvas"></canvas>
 
-  <!-- Gesture wrapper + Альфа видеонууд -->
+  <!-- Gesture / 3D wrapper + Альфа видеонууд -->
   <div id="overlay-wrap">
     <video id="intro" class="overlay" playsinline></video>
     <video id="exercise" class="overlay" playsinline loop></video>
@@ -93,6 +111,7 @@
 
   <button id="reset" type="button">Reset</button>
   <div id="toast">🔊 Дууг идэвхжүүлэхийн тулд дэлгэц дээр нэг дарна уу</div>
+  <div id="badge">Placement mode — drag / pinch → tap to lock</div>
 
 <script>
   // ================== ТАНЫ ВИДЕО URL-ууд ==================
@@ -110,6 +129,7 @@
   const btnExercise = document.getElementById('btnExercise');
   const toast = document.getElementById('toast');
   const resetBtn = document.getElementById('reset');
+  const badge = document.getElementById('badge');
 
   // ===== Камер (арын) зөвшөөрөл → шууд асгах
   async function startCamera(){
@@ -127,89 +147,104 @@
     s1.src = webmUrl;
     s1.type = 'video/webm; codecs="vp8,opus"';
     videoEl.appendChild(s1);
-    // // iOS fallback (HEVC + alpha)
-    // if (hevcUrl){
-    //   const s2 = document.createElement('source');
-    //   s2.src = hevcUrl;
-    //   s2.type = 'video/mp4; codecs="hvc1"';
-    //   videoEl.appendChild(s2);
-    // }
+    // if (hevcUrl){ const s2=document.createElement('source'); s2.src=hevcUrl; s2.type='video/mp4; codecs="hvc1"'; videoEl.appendChild(s2); }
   }
 
-  // ===== Drag + Pinch-Zoom (хоёр видеонд адил үйлчилнэ) =====
-  let active = null;                      // одоогоор аль видео идэвхтэй вэ
+  // ===== Placement / Transform (default: LOCKED) =====
+  let active = null;                 // аль видео идэвхтэй вэ
+  let locked = true;                 // дэлгэц дээр тогтсон (drag/zoom идэвхгүй)
   let scale = 1, startScale = 1;
   let tx = 0, ty = 0, startX = 0, startY = 0;
   let startDist = 0;
 
+  // anchor байрлал (доод төв): translate(-50%,-50%) rotateX(10deg) scale(1)
+  // бид зөвхөн translate-д tx,ty-ээр нэмэлт хөдөлгөөн оруулна
   function applyTransform(){
     if (!active) return;
-    active.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    active.style.transform =
+      `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) rotateX(10deg) scale(${scale})`;
   }
   function resetTransform(){
     scale = 1; tx = 0; ty = 0; applyTransform();
   }
-  function dist(t0, t1){ const dx=t0.clientX-t1.clientX, dy=t0.clientY-t1.clientY; return Math.hypot(dx,dy); }
 
-  // mouse drag
+  // Placement mode: long-press 600ms → unlock; нэг дарахад lock
+  let pressTimer = null;
+  wrap.addEventListener('pointerdown', e=>{
+    if (!active) return;
+    pressTimer = setTimeout(()=>{
+      locked = false;
+      badge.style.display = 'block';
+    }, 600);
+  });
+  wrap.addEventListener('pointerup', ()=>{
+    clearTimeout(pressTimer);
+  });
+  wrap.addEventListener('click', ()=>{
+    // placement горимд байхад нэг товшвол lock
+    if (!locked){
+      locked = true;
+      badge.style.display = 'none';
+    }
+  });
+
+  // mouse drag (placement mode-д л ажиллана)
   wrap.addEventListener('mousedown', e=>{
+    if (!active || locked) return;
     startX = e.clientX - tx; startY = e.clientY - ty;
     const mm = e2 => { tx = e2.clientX - startX; ty = e2.clientY - startY; applyTransform(); };
     const mu = () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
     window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
   });
 
-  // touch drag + pinch
+  // touch drag + pinch (placement mode-д)
   wrap.addEventListener('touchstart', e=>{
-    if (!active) return;
+    if (!active || locked) return;
     if (e.touches.length === 1){
       startX = e.touches[0].clientX - tx;
       startY = e.touches[0].clientY - ty;
     } else if (e.touches.length === 2){
-      startDist = dist(e.touches[0], e.touches[1]);
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      startDist = Math.hypot(dx,dy);
       startScale = scale;
     }
   }, {passive:false});
 
   wrap.addEventListener('touchmove', e=>{
-    if (!active) return;
+    if (!active || locked) return;
     e.preventDefault();
     if (e.touches.length === 1){
       tx = e.touches[0].clientX - startX;
       ty = e.touches[0].clientY - startY;
     } else if (e.touches.length === 2){
-      const d = dist(e.touches[0], e.touches[1]);
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const d = Math.hypot(dx,dy);
       scale = Math.max(0.2, Math.min(5, startScale * (d / startDist)));
     }
     applyTransform();
   }, {passive:false});
 
-  // double-tap/click → reset
-  let lastTap = 0;
-  wrap.addEventListener('click', ()=>{
-    const now = Date.now();
-    if (now - lastTap < 300) resetTransform();
-    lastTap = now;
+  resetBtn.addEventListener('click', ()=>{
+    resetTransform();
+    // мөн байрлалыг дахин center-д lock-олж өгье
+    locked = true; badge.style.display='none';
   });
-  resetBtn.addEventListener('click', resetTransform);
 
-  // ===== Алхмууд: нээгдмэгц → камер → intro → меню → дасгал (Start товчгүй) =====
+  // ===== Урсгал =====
   async function boot(){
     try{ await startCamera(); }
     catch(err){ alert("Камерын зөвшөөрөл хэрэгтэй: " + err.message); return; }
 
-    // Intro-г үргэлж тоглуулна (болгоны үед)
-    setSources(intro, INTRO_URL /*, INTRO_IOS*/);
     wrap.style.display = "block";
     resetBtn.style.display = "inline-block";
 
-    // идэвхтэй видеог intro болгон тохируулж, байрлалыг цэвэрлэе
-    active = intro; resetTransform();
-    intro.muted = false;
-    intro.currentTime = 0;
-    intro.style.display = "block";
+    // Intro-г үргэлж тоглуулна (болгоны үед)
+    setSources(intro, INTRO_URL /*, INTRO_IOS*/);
+    active = intro; locked = true; resetTransform();
+    intro.muted = false; intro.currentTime = 0; intro.style.display = "block";
 
-    // Аудио autoplay policy-д fallback
     try{ await intro.play(); }
     catch(e){
       toast.style.display = "block";
@@ -231,17 +266,12 @@
     menu.style.display = "flex";
   });
 
-  // “Дасгал” товч → exercise alpha-г камерын дээр loop-той
+  // “Дасгал” товч → exercise alpha (loop)
   btnExercise.addEventListener('click', async ()=>{
     menu.style.display = "none";
     setSources(exercise, EXERCISE_URL /*, EXERCISE_IOS*/);
-
-    // идэвхтэй видеог exercise болгоод reset
-    active = exercise; resetTransform();
-
-    exercise.muted = false;
-    exercise.currentTime = 0;
-    exercise.style.display = "block";
+    active = exercise; locked = true; resetTransform();
+    exercise.muted = false; exercise.currentTime = 0; exercise.style.display = "block";
     try{ await exercise.play(); }
     catch(e){
       toast.style.display = "block";
@@ -256,7 +286,6 @@
     }
   });
 
-  // Старт
   window.addEventListener('DOMContentLoaded', boot);
 </script>
 </body>
