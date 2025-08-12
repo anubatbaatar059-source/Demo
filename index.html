@@ -3,260 +3,189 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Intro→Меню→Дасгал (Audio, Drag & Zoom)</title>
+  <title>WebAR — Realistic Overlay (Center Menu, Drag & Zoom)</title>
   <style>
-    :root { --z-cam:0; --z-canvas:1; --z-video:2; --z-menu:3; --z-toast:4; }
+    :root { --z-cam:0; --z-video:2; --z-menu:5; --z-toast:6; }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial}
 
     /* Камер (арын) */
     #cam{
-      position:fixed;inset:0;width:100%;height:100%;
-      object-fit:cover;background:#000;z-index:var(--z-cam);
+      position:fixed; inset:0; width:100%; height:100%;
+      object-fit:cover; background:#000; z-index:var(--z-cam);
       transform:scaleX(-1);
     }
 
-    /* Unity canvas (хэрэглэвэл) */
-    #unity-canvas{
-      position:fixed;inset:0;width:100vw;height:100vh;
-      background:transparent!important;z-index:var(--z-canvas);display:none;
-    }
-
-    /* Gesture wrapper: альфа видеонууд дээрх drag/zoom эвентүүд энд ирнэ */
+    /* 3D мэдрэмж өгөх перспектив wrapper */
     #overlay-wrap{
-      position:fixed;inset:0;z-index:var(--z-video);
-      touch-action:none;          /* touch gesture авахад хэрэгтэй */
-      display:none;               /* видео гарч ирэх үед block болно */
+      position:fixed; inset:0; z-index:var(--z-video);
+      display:none; touch-action:none; perspective:1000px;
     }
 
-    /* Альфа видеонууд */
+    /* Альфа видео – доод-төв anchor + tilt + shadow */
     .overlay{
-      position:absolute;inset:0;width:100%;height:100%;
-      object-fit:contain;background:transparent;display:none;
-      pointer-events:none;        /* эвентүүд wrapper дээр авна */
-      transform-origin:center center;
-      transform:translate(0px,0px) scale(1);
+      position:absolute; left:50%; top:72%;
+      width:clamp(38vw,58vw,75vw); height:auto;
+      transform:translate(-50%,-50%) rotateX(11deg) scale(1);
+      transform-origin:center center; object-fit:contain;
+      background:transparent; display:none; pointer-events:none;
+      filter:drop-shadow(0 14px 34px rgba(0,0,0,.38));
+      animation:popIn .55s cubic-bezier(.2,.8,.2,1) both;
+    }
+    @keyframes popIn{
+      from{opacity:0;transform:translate(-50%,-40%) rotateX(16deg) scale(.86)}
+      to  {opacity:1;transform:translate(-50%,-50%) rotateX(11deg) scale(1)}
     }
 
-    /* Меню */
+    /* Төв меню (slide-down) */
     #menu{
-      position:fixed;inset:0;display:flex;align-items:flex-end;justify-content:center;
-      padding:28px;pointer-events:none;z-index:var(--z-menu);
-      background:linear-gradient(to top, rgba(0,0,0,.5), rgba(0,0,0,0) 40%);
-      animation: fadeIn .6s ease both; display:none;
+      position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+      z-index:var(--z-menu); pointer-events:none;
+      background:radial-gradient(120% 120% at 50% 100%, rgba(0,0,0,.45), rgba(0,0,0,0) 60%);
     }
-    .menu-inner{display:flex;gap:12px;pointer-events:auto;transform:translateY(15px);animation: slideUp .6s .1s ease both}
-    .btn{
-      padding:14px 18px;border:0;border-radius:14px;cursor:pointer;
-      background:#fff;color:#111;font-weight:600;font-size:16px;
-      box-shadow:0 8px 28px rgba(0,0,0,.25);transform:translateY(0);transition:transform .15s ease;
+    .menu-card{
+      width:min(92vw,420px); display:flex; flex-direction:column; gap:12px; padding:18px;
+      background:rgba(255,255,255,.94); border-radius:18px; pointer-events:auto;
+      box-shadow:0 24px 50px rgba(0,0,0,.35);
+      transform:translateY(-16px); opacity:0; animation:drop .45s ease-out forwards;
     }
-    .btn:active{transform:translateY(1px)}
+    .menu-title{font-weight:800;font-size:18px;color:#0f172a;text-align:center;margin-bottom:4px}
+    .btn{padding:14px 18px;border:0;border-radius:12px;cursor:pointer;background:#111827;color:#fff;font-weight:700;font-size:15px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+    .btn.alt{background:#e5e7eb;color:#111}
+    .row{display:flex;gap:10px}
+    @keyframes drop{from{opacity:0;transform:translateY(-24px)}to{opacity:1;transform:translateY(0)}}
 
-    /* Анимаци */
-    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-    @keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
-
-    /* Жижиг сануулга (autoplay policy) */
-    #toast{
-      position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:var(--z-toast);
-      background:rgba(0,0,0,.7);color:#fff;border-radius:10px;padding:10px 14px;font-size:13px;display:none
-    }
-
-    /* Reset товч (сонголт) */
-    #reset{
-      position:fixed;right:12px;bottom:20px;z-index:var(--z-menu);
-      padding:10px 12px;border:0;border-radius:10px;background:#fff;color:#111;cursor:pointer;display:none;
-    }
+    /* Autoplay сануулга */
+    #toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:var(--z-toast);background:rgba(0,0,0,.72);color:#fff;border-radius:10px;padding:10px 14px;font-size:13px;display:none}
   </style>
 </head>
 <body>
   <!-- Камер -->
   <video id="cam" playsinline autoplay muted></video>
 
-  <!-- Unity canvas (шаардлагатай бол ашиглаж болно) -->
-  <canvas id="unity-canvas"></canvas>
-
-  <!-- Gesture wrapper + Альфа видеонууд -->
+  <!-- Альфа видеонууд -->
   <div id="overlay-wrap">
     <video id="intro" class="overlay" playsinline></video>
     <video id="exercise" class="overlay" playsinline loop></video>
   </div>
 
-  <!-- Меню (intro дууссаны дараа гарна) -->
+  <!-- Төв меню -->
   <div id="menu">
-    <div class="menu-inner">
-      <button class="btn" id="btnInfo">Мэдээлэл</button>
-      <button class="btn" id="btnGuide">Заавар</button>
-      <button class="btn" id="btnExercise">Дасгал</button>
+    <div class="menu-card">
+      <div class="menu-title">Дараагийн алхам</div>
+      <button class="btn" id="btnExercise">Дасгал (Loop)</button>
+      <div class="row">
+        <button class="btn alt" id="btnInfo">Мэдээлэл</button>
+        <button class="btn alt" id="btnGuide">Заавар</button>
+      </div>
     </div>
   </div>
 
-  <button id="reset" type="button">Reset</button>
   <div id="toast">🔊 Дууг идэвхжүүлэхийн тулд дэлгэц дээр нэг дарна уу</div>
 
 <script>
-  // ================== ТАНЫ ВИДЕО URL-ууд ==================
+  // ===== Видео URL-ууд =====
   const INTRO_URL    = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
   const EXERCISE_URL = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-  // iOS fallback (шаардлагатай бол хоёр дахь source байдлаар идэвхжүүл)
-  // const INTRO_IOS    = "https://.../intro_alpha_hevc.mp4";    // type='video/mp4; codecs="hvc1"'
-  // const EXERCISE_IOS = "https://.../exercise_alpha_hevc.mp4"; // type='video/mp4; codecs="hvc1"'
+  // iOS бол сонголтоор HEVC+hvc1 source-ыг хоёр дахь <source> байдлаар нэмээрэй.
 
-  const cam = document.getElementById('cam');
+  const cam  = document.getElementById('cam');
   const wrap = document.getElementById('overlay-wrap');
-  const intro = document.getElementById('intro');
-  const exercise = document.getElementById('exercise');
+  const intro= document.getElementById('intro');
+  const ex   = document.getElementById('exercise');
   const menu = document.getElementById('menu');
   const btnExercise = document.getElementById('btnExercise');
   const toast = document.getElementById('toast');
-  const resetBtn = document.getElementById('reset');
 
-  // ===== Камер (арын) зөвшөөрөл → шууд асгах
+  // Камер
   async function startCamera(){
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:{ ideal:'environment' } }, audio:false
-    });
-    cam.srcObject = stream;
-    await cam.play();
+    const s = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' } }, audio:false });
+    cam.srcObject = s; await cam.play();
   }
 
-  // ===== Видеонд эх сурвалж оноох
-  function setSources(videoEl, webmUrl /*, hevcUrl */){
-    videoEl.innerHTML = "";
-    const s1 = document.createElement('source');
-    s1.src = webmUrl;
-    s1.type = 'video/webm; codecs="vp8,opus"';
-    videoEl.appendChild(s1);
-    // // iOS fallback (HEVC + alpha)
-    // if (hevcUrl){
-    //   const s2 = document.createElement('source');
-    //   s2.src = hevcUrl;
-    //   s2.type = 'video/mp4; codecs="hvc1"';
-    //   videoEl.appendChild(s2);
-    // }
+  // Видео эх сурвалж
+  function setVideo(el, url){
+    el.innerHTML = "";
+    const s = document.createElement('source');
+    s.src = url; s.type = 'video/webm; codecs="vp8,opus"';
+    el.appendChild(s);
   }
 
-  // ===== Drag + Pinch-Zoom (хоёр видеонд адил үйлчилнэ) =====
-  let active = null;                      // одоогоор аль видео идэвхтэй вэ
-  let scale = 1, startScale = 1;
-  let tx = 0, ty = 0, startX = 0, startY = 0;
-  let startDist = 0;
+  // Багахан gyro parallax
+  let parallax = {x:0, y:0};
+  if (window.DeviceOrientationEvent) {
+    window.addEventListener('deviceorientation', e=>{
+      const nx = Math.max(-15, Math.min(15, e.gamma || 0)) / 15;
+      const ny = Math.max(-15, Math.min(15, e.beta  || 0)) / 15;
+      parallax.x = nx * 10; parallax.y = ny * 6; applyTransform();
+    }, true);
+  }
 
+  // Drag + Zoom (bounded)
+  let active=null, scale=1, startScale=1, tx=0, ty=0, sx=0, sy=0, startDist=0;
+  const clamp = () => {
+    const w = Math.min(window.innerWidth, 800);
+    const limitX = w*0.25, limitY = 120;
+    tx = Math.max(-limitX, Math.min(limitX, tx));
+    ty = Math.max(-limitY, Math.min(limitY, ty));
+    scale = Math.max(0.85, Math.min(1.6, scale));
+  };
   function applyTransform(){
-    if (!active) return;
-    active.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    if(!active) return; clamp();
+    active.style.transform =
+      `translate(calc(-50% + ${tx + parallax.x}px), calc(-50% + ${ty + parallax.y}px)) rotateX(11deg) scale(${scale})`;
   }
-  function resetTransform(){
-    scale = 1; tx = 0; ty = 0; applyTransform();
-  }
-  function dist(t0, t1){ const dx=t0.clientX-t1.clientX, dy=t0.clientY-t1.clientY; return Math.hypot(dx,dy); }
+  function resetTransform(){ scale=1; tx=0; ty=0; applyTransform(); }
 
-  // mouse drag
   wrap.addEventListener('mousedown', e=>{
-    startX = e.clientX - tx; startY = e.clientY - ty;
-    const mm = e2 => { tx = e2.clientX - startX; ty = e2.clientY - startY; applyTransform(); };
+    sx = e.clientX - tx; sy = e.clientY - ty;
+    const mm = e2 => { tx = e2.clientX - sx; ty = e2.clientY - sy; applyTransform(); };
     const mu = () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
     window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
   });
-
-  // touch drag + pinch
   wrap.addEventListener('touchstart', e=>{
-    if (!active) return;
-    if (e.touches.length === 1){
-      startX = e.touches[0].clientX - tx;
-      startY = e.touches[0].clientY - ty;
-    } else if (e.touches.length === 2){
-      startDist = dist(e.touches[0], e.touches[1]);
-      startScale = scale;
-    }
+    if(!active) return;
+    if(e.touches.length===1){ sx=e.touches[0].clientX - tx; sy=e.touches[0].clientY - ty; }
+    else if(e.touches.length===2){ startDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); startScale = scale; }
   }, {passive:false});
-
   wrap.addEventListener('touchmove', e=>{
-    if (!active) return;
-    e.preventDefault();
-    if (e.touches.length === 1){
-      tx = e.touches[0].clientX - startX;
-      ty = e.touches[0].clientY - startY;
-    } else if (e.touches.length === 2){
-      const d = dist(e.touches[0], e.touches[1]);
-      scale = Math.max(0.2, Math.min(5, startScale * (d / startDist)));
+    if(!active) return; e.preventDefault();
+    if(e.touches.length===1){ tx = e.touches[0].clientX - sx; ty = e.touches[0].clientY - sy; }
+    else if(e.touches.length===2){
+      const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+      scale = startScale * (d/startDist);
     }
     applyTransform();
   }, {passive:false});
+  let lastTap=0;
+  wrap.addEventListener('click', ()=>{ const n=Date.now(); if(n-lastTap<300) resetTransform(); lastTap=n; });
 
-  // double-tap/click → reset
-  let lastTap = 0;
-  wrap.addEventListener('click', ()=>{
-    const now = Date.now();
-    if (now - lastTap < 300) resetTransform();
-    lastTap = now;
-  });
-  resetBtn.addEventListener('click', resetTransform);
-
-  // ===== Алхмууд: нээгдмэгц → камер → intro → меню → дасгал (Start товчгүй) =====
-  async function boot(){
-    try{ await startCamera(); }
-    catch(err){ alert("Камерын зөвшөөрөл хэрэгтэй: " + err.message); return; }
-
-    // Intro-г үргэлж тоглуулна (болгоны үед)
-    setSources(intro, INTRO_URL /*, INTRO_IOS*/);
-    wrap.style.display = "block";
-    resetBtn.style.display = "inline-block";
-
-    // идэвхтэй видеог intro болгон тохируулж, байрлалыг цэвэрлэе
-    active = intro; resetTransform();
-    intro.muted = false;
-    intro.currentTime = 0;
-    intro.style.display = "block";
-
-    // Аудио autoplay policy-д fallback
-    try{ await intro.play(); }
-    catch(e){
-      toast.style.display = "block";
-      intro.muted = true;
-      intro.play().catch(()=>{});
-      const enableAudio = ()=>{
-        intro.muted = false; intro.volume = 1.0;
-        toast.style.display = "none";
-        document.removeEventListener('pointerdown', enableAudio, {passive:true});
-      };
-      document.addEventListener('pointerdown', enableAudio, {passive:true, once:true});
+  // Аудио autoplay fallback
+  async function playWithAudio(el){
+    el.muted=false;
+    try{ await el.play(); toast.style.display='none'; }
+    catch{
+      toast.style.display='block'; el.muted=true; el.play().catch(()=>{});
+      const enable=()=>{ el.muted=false; el.volume=1; toast.style.display='none'; document.removeEventListener('pointerdown', enable, {passive:true}); };
+      document.addEventListener('pointerdown', enable, {passive:true, once:true});
     }
   }
 
-  // Intro дуусмагц → меню камерын дээр
-  intro.addEventListener('ended', ()=>{
-    intro.style.display = "none";
-    active = null;
-    menu.style.display = "flex";
-  });
-
-  // “Дасгал” товч → exercise alpha-г камерын дээр loop-той
+  // Урсгал
+  async function boot(){
+    try{ await startCamera(); } catch(e){ alert("Камерын зөвшөөрөл хэрэгтэй: "+e.message); return; }
+    setVideo(intro, INTRO_URL); setVideo(ex, EXERCISE_URL);
+    wrap.style.display='block';
+    active = intro; resetTransform();
+    intro.currentTime=0; intro.loop=false; intro.style.display='block';
+    await playWithAudio(intro);
+  }
+  intro.addEventListener('ended', ()=>{ intro.style.display='none'; active=null; menu.style.display='flex'; });
   btnExercise.addEventListener('click', async ()=>{
-    menu.style.display = "none";
-    setSources(exercise, EXERCISE_URL /*, EXERCISE_IOS*/);
-
-    // идэвхтэй видеог exercise болгоод reset
-    active = exercise; resetTransform();
-
-    exercise.muted = false;
-    exercise.currentTime = 0;
-    exercise.style.display = "block";
-    try{ await exercise.play(); }
-    catch(e){
-      toast.style.display = "block";
-      exercise.muted = true;
-      exercise.play().catch(()=>{});
-      const enableAudio2 = ()=>{
-        exercise.muted = false; exercise.volume = 1.0;
-        toast.style.display = "none";
-        document.removeEventListener('pointerdown', enableAudio2, {passive:true});
-      };
-      document.addEventListener('pointerdown', enableAudio2, {passive:true, once:true});
-    }
+    menu.style.display='none';
+    ex.currentTime=0; ex.loop=true; ex.style.display='block';
+    active = ex; resetTransform(); await playWithAudio(ex);
   });
 
-  // Старт
   window.addEventListener('DOMContentLoaded', boot);
 </script>
 </body>
