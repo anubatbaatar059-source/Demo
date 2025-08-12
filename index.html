@@ -17,7 +17,7 @@
     #debug{position:fixed;left:10px;top:10px;z-index:var(--z-debug);color:#0f0;background:rgba(0,0,0,.5);padding:6px 8px;border-radius:6px;font:12px/1.2 monospace;white-space:pre-wrap;max-width:80vw}
   </style>
   <script>
-    // service worker кэш байвал салгана (хуучин build ачаалчихдаг тул)
+    // Хуучин PWA SW кэш байвал салгана
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations?.().then(rs=>rs.forEach(r=>r.unregister()));
     }
@@ -44,7 +44,7 @@
 <script>
   const INTRO_URL        = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
   const EXERCISE_URL     = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-  const MP4_EXERCISE_URL = ""; // iOS-д MP4 байвал энд тавина
+  const MP4_EXERCISE_URL = ""; // iOS-д MP4 fallback байвал энд тавь
 
   const dbg = msg => { const el=document.getElementById('debug'); el.textContent = 'DEBUG: ' + msg + '\n' + el.textContent.replace(/^DEBUG: [^\n]*\n?/,''); };
 
@@ -112,13 +112,32 @@
   intro.addEventListener('ended', ()=>{ intro.style.display = "none"; menu.style.display = "flex"; dbg('intro ended → menu'); });
 </script>
 
-<!-- Zappar THREE.js (CDN) -->
-<script src="https://libs.zappar.com/zappar-threejs/2.5.2/zappar-threejs.js"></script>
-
-<!-- three.js (ESM) + Zappar -->
+<!-- --- three.js + Zappar (динамик ачаалагчтай) --- -->
 <script type="module">
   import * as THREE from 'https://unpkg.com/three@0.152.2/build/three.module.js';
-  const ZapparThree = window.ZapparThree;
+
+  // 1) ZapparThree-г олон URL-ээс ээлжлэн ачаалах loader
+  async function loadZapparThree() {
+    if (window.ZapparThree) return window.ZapparThree;
+    const urls = [
+      'https://libs.zappar.com/zappar-threejs/2.5.2/zappar-threejs.js',
+      'https://libs.zappar.com/zappar-threejs/2.3.13/zappar-threejs.js',
+      'https://cdn.jsdelivr.net/npm/@zappar/zappar-threejs@2.3.13/dist/zappar-threejs.umd.min.js'
+    ];
+    for (const url of urls) {
+      try {
+        await new Promise((res, rej) => {
+          const s = document.createElement('script');
+          s.src = url; s.async = false; s.crossOrigin = 'anonymous';
+          s.onload = res; s.onerror = rej; document.head.appendChild(s);
+        });
+        if (window.ZapparThree) { document.getElementById('debug').textContent = 'DEBUG: Zappar loaded: ' + url; return window.ZapparThree; }
+      } catch (e) {
+        document.getElementById('debug').textContent = 'DEBUG: Zappar load fail: ' + url;
+      }
+    }
+    throw new Error('ZapparThree load failed');
+  }
 
   let renderer, scene, camera, instantTracker, anchorGroup, videoMesh, placed = false;
 
@@ -132,26 +151,21 @@
   }
 
   async function startZapparAR(){
-    if (!ZapparThree) { alert("ZapparThree ачаалагдсангүй."); return; }
+    const dbg = m => { const el=document.getElementById('debug'); el.textContent = 'DEBUG: ' + m; };
+
+    const ZapparThree = await loadZapparThree().catch(e=>{ alert('ZapparThree ачаалагдсангүй.'); throw e; });
+
     if (ZapparThree.browserIncompatible()) { ZapparThree.browserIncompatibleUI(); return; }
 
     makeRenderer();
     ZapparThree.glContextSet(renderer.getContext());
-
-    // Арын камер ашиглахыг зааж өгье
-    camera = new ZapparThree.Camera({ userFacing: false });
+    camera = new ZapparThree.Camera({ userFacing:false });
     scene  = new THREE.Scene();
     scene.background = camera.backgroundTexture;
 
-    try{
-      const granted = await ZapparThree.permissionRequest();
-      if(!granted){ ZapparThree.permissionDeniedUI(); return; }
-      camera.start();
-      window.document.getElementById('debug').textContent = 'DEBUG: zappar camera started';
-    }catch(e){
-      window.document.getElementById('debug').textContent = 'DEBUG: camera.start error: '+e;
-      return;
-    }
+    const granted = await ZapparThree.permissionRequest();
+    if(!granted){ ZapparThree.permissionDeniedUI(); return; }
+    camera.start(); dbg('zappar camera started');
 
     // Instant World Tracking
     instantTracker = new ZapparThree.InstantWorldTracker();
@@ -169,12 +183,11 @@
     videoMesh.rotation.x = -Math.PI/2;
     anchorGroup.add(videoMesh);
 
-    const animate = () => {
+    renderer.setAnimationLoop(()=>{
       if(!placed) instantTracker.setAnchorPoseFromCameraOffset(0, 0, -2);
       camera.updateFrame(renderer);
       renderer.render(scene, camera);
-    };
-    renderer.setAnimationLoop(animate);
+    });
 
     // Эхний товшилтоор байрлуулах + play
     const onFirstTap = ()=>{
@@ -187,15 +200,11 @@
     window.addEventListener('pointerdown', onFirstTap, {once:true, passive:true});
   }
 
+  // "Дасгал" → AR эхлүүлэх
   document.getElementById('btnExercise').addEventListener('click', async ()=>{
     document.getElementById('menu').style.display = 'none';
-
-    // DOM-д үлдээнэ (видео декодолж байх ёстой)
     const wrap = document.getElementById('overlay-wrap');
-    wrap.style.display = 'block';
-    wrap.style.visibility = 'hidden';
-    wrap.style.pointerEvents = 'none';
-
+    wrap.style.display = 'block'; wrap.style.visibility = 'hidden'; wrap.style.pointerEvents = 'none';
     await window.stopCam();
     await startZapparAR();
   });
