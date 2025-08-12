@@ -3,219 +3,256 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Centered Menu + Drag/Zoom Video</title>
+  <title>WebAR — Intro→Меню→Дасгал (Audio, Drag & Zoom)</title>
   <style>
-    :root { --z-cam:0; --z-video:2; --z-ui:5; --z-toast:6 }
+    :root { --z-cam:0; --z-canvas:1; --z-video:2; --z-menu:3; --z-toast:4; }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial}
 
+    /* Камер (арын) */
     #cam{
-      position:fixed; inset:0; width:100%; height:100%;
-      object-fit:cover; background:#000; z-index:var(--z-cam);
+      position:fixed;inset:0;width:100%;height:100%;
+      object-fit:cover;background:#000;z-index:var(--z-cam);
       transform:scaleX(-1);
     }
 
-    #overlay-wrap{
-      position:fixed; inset:0; z-index:var(--z-video);
-      display:none; touch-action:none; perspective:1000px;
+    /* Unity canvas (хэрвээ дараа ашиглах бол) */
+    #unity-canvas{
+      position:fixed;inset:0;width:100vw;height:100vh;
+      background:transparent!important;z-index:var(--z-canvas);display:none;
     }
 
+    /* Gesture wrapper */
+    #overlay-wrap{
+      position:fixed;inset:0;z-index:var(--z-video);
+      touch-action:none; /* gesture авахад зайлшгүй */
+      display:none;
+      perspective:1000px;
+    }
+
+    /* Альфа видеонууд — ТӨВДӨӨ, томоор */
     .overlay{
       position:absolute; left:50%; top:55%;
-      width:clamp(60vw, 72vw, 92vw);
+      width:clamp(60vw, 72vw, 92vw); /* анхны том хэмжээ */
       height:auto;
+      object-fit:contain; background:transparent; display:none;
+      pointer-events:none; transform-origin:center center;
+      /* анхны төвшилт (дараа нь JS translate/scale-ийг нэмнэ) */
       transform:translate(-50%,-50%) rotateX(8deg) scale(1.15);
-      transform-origin:center center;
-      object-fit:contain; background:transparent; display:none; pointer-events:none;
       filter:drop-shadow(0 18px 40px rgba(0,0,0,.42));
-      animation:popIn .45s ease both;
+      animation: popIn .45s ease both;
     }
     @keyframes popIn{
       from{opacity:0;transform:translate(-50%,-52%) rotateX(12deg) scale(.95)}
       to  {opacity:1;transform:translate(-50%,-50%) rotateX(8deg)  scale(1.15)}
     }
 
-    /* Меню — дэлгэцийн төвд */
+    /* Меню (intro дуусмагц — доод талд) */
     #menu{
-      position:fixed;
-      top:50%; left:50%; transform:translate(-50%,-50%);
-      display:none; flex-direction:column; align-items:center; gap:14px;
-      z-index:var(--z-ui); pointer-events:auto;
+      position:fixed;inset:0;display:flex;align-items:flex-end;justify-content:center;
+      padding:28px;pointer-events:none;z-index:var(--z-menu);
+      background:linear-gradient(to top, rgba(0,0,0,.5), rgba(0,0,0,0) 40%);
+      animation: fadeIn .6s ease both; display:none;
     }
+    .menu-inner{display:flex;gap:12px;pointer-events:auto;transform:translateY(15px);animation: slideUp .6s .1s ease both}
     .btn{
-      width:180px; /* бүх товч ижил өргөн */
-      padding:14px 20px; border:0; border-radius:12px; cursor:pointer;
-      background:#fff; color:#111; font-weight:700; font-size:16px;
-      text-align:center;
-      box-shadow:0 8px 24px rgba(0,0,0,.25);
+      padding:14px 18px;border:0;border-radius:14px;cursor:pointer;
+      background:#fff;color:#111;font-weight:600;font-size:16px;
+      box-shadow:0 8px 28px rgba(0,0,0,.25);transform:translateY(0);transition:transform .15s ease;
     }
-    .btn:active{ transform:scale(0.98) }
+    .btn:active{transform:translateY(1px)}
+
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    @keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
 
     /* Autoplay сануулга */
     #toast{
-      position:fixed; left:50%; top:14px; transform:translateX(-50%);
-      z-index:var(--z-toast); background:rgba(0,0,0,.72); color:#fff;
-      border-radius:10px; padding:10px 14px; font-size:13px; display:none
+      position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:var(--z-toast);
+      background:rgba(0,0,0,.7);color:#fff;border-radius:10px;padding:10px 14px;font-size:13px;display:none
     }
 
-    /* Scale controller */
-    #ctrl{
-      position:fixed; left:12px; bottom:16px; z-index:var(--z-ui);
-      display:flex; gap:8px; align-items:center; background:rgba(17,17,17,.65);
-      padding:8px; border-radius:12px; backdrop-filter: blur(6px);
+    /* Сонголтоор reset товч (хэрэгтэй бол үлдээгээрэй) */
+    #reset{
+      position:fixed;right:12px;bottom:20px;z-index:var(--z-menu);
+      padding:10px 12px;border:0;border-radius:10px;background:#fff;color:#111;cursor:pointer;display:none;
     }
-    #ctrl button{
-      padding:8px 10px; border:0; border-radius:10px; background:#fff; color:#111;
-      font-weight:700; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,.25);
-    }
-    #scaleVal{ color:#fff; font-weight:700; min-width:54px; text-align:center }
   </style>
 </head>
 <body>
+  <!-- Камер -->
   <video id="cam" playsinline autoplay muted></video>
 
+  <!-- Unity canvas (одоо ашиглахгүй ч үлдээв) -->
+  <canvas id="unity-canvas"></canvas>
+
+  <!-- Альфа видеонууд -->
   <div id="overlay-wrap">
     <video id="intro" class="overlay" playsinline></video>
     <video id="exercise" class="overlay" playsinline loop></video>
   </div>
 
+  <!-- Меню -->
   <div id="menu">
-    <button class="btn" id="btnExercise">Дасгал (Loop)</button>
-    <button class="btn" id="btnInfo">Мэдээлэл</button>
-    <button class="btn" id="btnGuide">Заавар</button>
+    <div class="menu-inner">
+      <button class="btn" id="btnInfo">Мэдээлэл</button>
+      <button class="btn" id="btnGuide">Заавар</button>
+      <button class="btn" id="btnExercise">Дасгал</button>
+    </div>
   </div>
 
-  <div id="ctrl">
-    <button id="scaleMinus">−</button>
-    <div id="scaleVal">100%</div>
-    <button id="scalePlus">+</button>
-    <button id="scaleReset">Reset</button>
-  </div>
-
+  <button id="reset" type="button">Reset</button>
   <div id="toast">🔊 Дууг идэвхжүүлэхийн тулд дэлгэц дээр нэг дарна уу</div>
 
 <script>
+  // ===== Видео URL-ууд =====
   const INTRO_URL    = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
   const EXERCISE_URL = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
+  // (iOS fallback хэрэгтэй бол HEVC+hvc1-г хоёр дахь <source> байдлаар нэмээрэй.)
 
-  const cam  = document.getElementById('cam');
+  const cam = document.getElementById('cam');
   const wrap = document.getElementById('overlay-wrap');
-  const intro= document.getElementById('intro');
-  const ex   = document.getElementById('exercise');
+  const intro = document.getElementById('intro');
+  const exercise = document.getElementById('exercise');
   const menu = document.getElementById('menu');
   const btnExercise = document.getElementById('btnExercise');
   const toast = document.getElementById('toast');
+  const resetBtn = document.getElementById('reset');
 
+  // Камер асаах
   async function startCamera(){
-    const s = await navigator.mediaDevices.getUserMedia({
+    const stream = await navigator.mediaDevices.getUserMedia({
       video:{ facingMode:{ ideal:'environment' } }, audio:false
     });
-    cam.srcObject = s; await cam.play();
+    cam.srcObject = stream;
+    await cam.play();
   }
 
-  function setVideo(el, url){
-    el.innerHTML = "";
-    const s = document.createElement('source');
-    s.src = url; s.type = 'video/webm; codecs="vp8,opus"';
-    el.appendChild(s);
+  // Видео эх сурвалж оноох
+  function setSources(videoEl, webmUrl /*, hevcUrl */){
+    videoEl.innerHTML = "";
+    const s1 = document.createElement('source');
+    s1.src = webmUrl;
+    s1.type = 'video/webm; codecs="vp8,opus"';
+    videoEl.appendChild(s1);
+    // if (hevcUrl){ const s2=document.createElement('source'); s2.src=hevcUrl; s2.type='video/mp4; codecs="hvc1"'; videoEl.appendChild(s2); }
   }
 
-  let parallax = {x:0, y:0};
-  if (window.DeviceOrientationEvent) {
-    window.addEventListener('deviceorientation', e=>{
-      const nx = Math.max(-15, Math.min(15, e.gamma || 0)) / 15;
-      const ny = Math.max(-15, Math.min(15, e.beta  || 0)) / 15;
-      parallax.x = nx * 8; parallax.y = ny * 5;
-      applyTransform();
-    }, true);
-  }
+  // ===== Drag + Pinch-Zoom (зөв төвөөс) =====
+  let active = null;
+  let scale = 1.15, startScale = 1.15;
+  let tx = 0, ty = 0, startX = 0, startY = 0;
+  let startDist = 0;
 
-  let active=null, scale=1.15, startScale=1.15, tx=0, ty=0, sx=0, sy=0, startDist=0;
-  function bounds(){
-    const w = window.innerWidth, h = window.innerHeight;
-    const limitX = Math.max(120, w * 0.35);
-    const limitY = Math.max(140, h * 0.28);
-    tx = Math.max(-limitX, Math.min(limitX, tx));
-    ty = Math.max(-limitY, Math.min(limitY, ty));
-    scale = Math.max(0.7, Math.min(2.4, scale));
-  }
   function applyTransform(){
-    if(!active) return; bounds();
+    if (!active) return;
+    // Төвөөс translate хийх: calc(-50% + tx)
     active.style.transform =
-      `translate(calc(-50% + ${tx + parallax.x}px), calc(-50% + ${ty + parallax.y}px)) rotateX(8deg) scale(${scale})`;
+      `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) rotateX(8deg) scale(${scale})`;
   }
   function resetTransform(){
-    scale = 1.15; tx = 0; ty = 0; applyTransform(); updateScaleLabel();
+    scale = 1.15; tx = 0; ty = 0; applyTransform();
   }
-  const dist=(a,b)=>Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+  function dist(t0, t1){ const dx=t0.clientX-t1.clientX, dy=t0.clientY-t1.clientY; return Math.hypot(dx,dy); }
 
+  // mouse drag
   wrap.addEventListener('mousedown', e=>{
-    sx = e.clientX - tx; sy = e.clientY - ty;
-    const mm = e2 => { tx = e2.clientX - sx; ty = e2.clientY - sy; applyTransform(); };
+    startX = e.clientX - tx; startY = e.clientY - ty;
+    const mm = e2 => { tx = e2.clientX - startX; ty = e2.clientY - startY; applyTransform(); };
     const mu = () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
     window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
   });
+
+  // touch drag + pinch
   wrap.addEventListener('touchstart', e=>{
-    if(!active) return;
-    if(e.touches.length===1){ sx=e.touches[0].clientX - tx; sy=e.touches[0].clientY - ty; }
-    else if(e.touches.length===2){ startDist = dist(e.touches[0], e.touches[1]); startScale = scale; }
+    if (!active) return;
+    if (e.touches.length === 1){
+      startX = e.touches[0].clientX - tx;
+      startY = e.touches[0].clientY - ty;
+    } else if (e.touches.length === 2){
+      startDist = dist(e.touches[0], e.touches[1]);
+      startScale = scale;
+    }
   }, {passive:false});
+
   wrap.addEventListener('touchmove', e=>{
-    if(!active) return; e.preventDefault();
-    if(e.touches.length===1){ tx = e.touches[0].clientX - sx; ty = e.touches[0].clientY - sy; }
-    else if(e.touches.length===2){ const d = dist(e.touches[0], e.touches[1]); scale = startScale * (d/startDist); }
+    if (!active) return;
+    e.preventDefault();
+    if (e.touches.length === 1){
+      tx = e.touches[0].clientX - startX;
+      ty = e.touches[0].clientY - startY;
+    } else if (e.touches.length === 2){
+      const d = dist(e.touches[0], e.touches[1]);
+      scale = Math.max(0.7, Math.min(2.4, startScale * (d / startDist)));
+    }
     applyTransform();
   }, {passive:false});
-  let lastTap=0;
-  wrap.addEventListener('click', ()=>{ const n=Date.now(); if(n-lastTap<300) resetTransform(); lastTap=n; });
 
-  async function playWithAudio(el){
-    el.muted=false;
-    try{ await el.play(); toast.style.display='none'; }
-    catch{
-      toast.style.display='block'; el.muted=true; el.play().catch(()=>{});
-      const enable=()=>{ el.muted=false; el.volume=1; toast.style.display='none';
-        document.removeEventListener('pointerdown', enable, {passive:true}); };
-      document.addEventListener('pointerdown', enable, {passive:true, once:true});
+  // double-tap/click → reset
+  let lastTap = 0;
+  wrap.addEventListener('click', ()=>{
+    const now = Date.now();
+    if (now - lastTap < 300) resetTransform();
+    lastTap = now;
+  });
+  resetBtn.addEventListener('click', resetTransform);
+
+  // ===== Урсгал =====
+  async function boot(){
+    try{ await startCamera(); }
+    catch(err){ alert("Камерын зөвшөөрөл хэрэгтэй: " + err.message); return; }
+
+    setSources(intro, INTRO_URL);
+    wrap.style.display = "block";
+    resetBtn.style.display = "inline-block";
+
+    // идэвхтэй нь intro, төвөөс эхэлнэ
+    active = intro; resetTransform();
+    intro.muted = false;
+    intro.currentTime = 0;
+    intro.style.display = "block";
+
+    // Аудио autoplay fallback
+    try{ await intro.play(); }
+    catch(e){
+      toast.style.display = "block";
+      intro.muted = true;
+      intro.play().catch(()=>{});
+      const enableAudio = ()=>{
+        intro.muted = false; intro.volume = 1.0;
+        toast.style.display = "none";
+        document.removeEventListener('pointerdown', enableAudio, {passive:true});
+      };
+      document.addEventListener('pointerdown', enableAudio, {passive:true, once:true});
     }
   }
 
-  async function boot(){
-    try{ await startCamera(); } catch(e){ alert("Камерын зөвшөөрөл хэрэгтэй: "+e.message); return; }
-    setVideo(intro, INTRO_URL);
-    setVideo(ex,    EXERCISE_URL);
-    wrap.style.display='block';
-    active = intro; resetTransform();
-    intro.currentTime=0; intro.loop=false; intro.style.display='block';
-    await playWithAudio(intro);
-  }
-
+  // Intro дуусмагц → меню
   intro.addEventListener('ended', ()=>{
-    intro.style.display='none';
-    active=null;
-    menu.style.display='flex';
+    intro.style.display = "none";
+    active = null;
+    menu.style.display = "flex";
   });
 
+  // “Дасгал” → loop
   btnExercise.addEventListener('click', async ()=>{
-    menu.style.display='none';
-    ex.currentTime=0; ex.loop=true; ex.style.display='block';
-    active = ex; resetTransform();
-    await playWithAudio(ex);
+    menu.style.display = "none";
+    setSources(exercise, EXERCISE_URL);
+    active = exercise; resetTransform();
+    exercise.muted = false;
+    exercise.currentTime = 0;
+    exercise.style.display = "block";
+    try{ await exercise.play(); }
+    catch(e){
+      toast.style.display = "block";
+      exercise.muted = true;
+      exercise.play().catch(()=>{});
+      const enableAudio2 = ()=>{
+        exercise.muted = false; exercise.volume = 1.0;
+        toast.style.display = "none";
+        document.removeEventListener('pointerdown', enableAudio2, {passive:true});
+      };
+      document.addEventListener('pointerdown', enableAudio2, {passive:true, once:true});
+    }
   });
-
-  // === Scale controller ===
-  const ctrlMinus = document.getElementById('scaleMinus');
-  const ctrlPlus  = document.getElementById('scalePlus');
-  const ctrlReset = document.getElementById('scaleReset');
-  const scaleVal  = document.getElementById('scaleVal');
-  function updateScaleLabel(){ scaleVal.textContent = Math.round(scale*100) + '%'; }
-  updateScaleLabel();
-  function stepScale(delta){
-    scale = Math.max(0.7, Math.min(2.4, scale + delta));
-    applyTransform(); updateScaleLabel();
-  }
-  ctrlMinus.addEventListener('click', ()=> stepScale(-0.1));
-  ctrlPlus .addEventListener('click', ()=> stepScale(+0.1));
-  ctrlReset.addEventListener('click', ()=> resetTransform());
 
   window.addEventListener('DOMContentLoaded', boot);
 </script>
