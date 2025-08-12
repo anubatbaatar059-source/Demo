@@ -3,133 +3,105 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Menu + Panels + Drag/Zoom</title>
+  <title>WebAR — Centered Menu + Drag/Zoom Video</title>
   <style>
-    :root { --z-cam:0; --z-video:2; --z-ui:5; --z-toast:6; }
+    :root { --z-cam:0; --z-video:2; --z-ui:5; --z-toast:6 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial}
 
-    /* Камер */
-    #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000;z-index:var(--z-cam);transform:scaleX(-1)}
+    /* Камер (арын) */
+    #cam{
+      position:fixed; inset:0; width:100%; height:100%;
+      object-fit:cover; background:#000; z-index:var(--z-cam);
+      transform:scaleX(-1);
+    }
 
-    /* 3D feel wrapper */
-    #overlay-wrap{position:fixed;inset:0;z-index:var(--z-video);display:none;touch-action:none;perspective:1000px}
+    /* Overlay wrapper (gesture авах) */
+    #overlay-wrap{
+      position:fixed; inset:0; z-index:var(--z-video);
+      display:none; touch-action:none; perspective:1000px;
+    }
 
-    /* Альфа видео (доод төв anchor + tilt + shadow) */
+    /* Альфа видео — төвдөө томоор (хэрэглэгч өөрчилж чадна) */
     .overlay{
-      position:absolute;left:50%;top:72%;
-      width:clamp(38vw,58vw,75vw);height:auto;
-      transform:translate(-50%,-50%) rotateX(11deg) scale(1);
-      transform-origin:center center;object-fit:contain;background:transparent;display:none;pointer-events:none;
-      filter:drop-shadow(0 14px 34px rgba(0,0,0,.38));
-      animation:popIn .55s cubic-bezier(.2,.8,.2,1) both;
+      position:absolute; left:50%; top:55%;
+      width:clamp(60vw, 72vw, 92vw);            /* анхны том хэмжээ */
+      height:auto;
+      transform:translate(-50%,-50%) rotateX(8deg) scale(1.15);
+      transform-origin:center center;
+      object-fit:contain; background:transparent; display:none; pointer-events:none;
+      filter:drop-shadow(0 18px 40px rgba(0,0,0,.42));
+      animation:popIn .45s ease both;
     }
-    @keyframes popIn{from{opacity:0;transform:translate(-50%,-40%) rotateX(16deg) scale(.86)}to{opacity:1;transform:translate(-50%,-50%) rotateX(11deg) scale(1)}}
+    @keyframes popIn{
+      from{opacity:0;transform:translate(-50%,-52%) rotateX(12deg) scale(.95)}
+      to  {opacity:1;transform:translate(-50%,-50%) rotateX(8deg)  scale(1.15)}
+    }
 
-    /* Төв меню ба панель */
-    .panel{
-      position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-ui);
-      background:radial-gradient(120% 120% at 50% 100%, rgba(0,0,0,.45), rgba(0,0,0,0) 60%);
-      pointer-events:none;
+    /* Меню — дэлгэцийн яг төвд, тус тусдаа товч */
+    #menu{
+      position:fixed;
+      top:50%; left:50%; transform:translate(-50%,-50%);
+      display:none; flex-direction:column; align-items:center; gap:14px;
+      z-index:var(--z-ui); pointer-events:auto;
     }
-    .card{
-      width:min(92vw,460px);display:flex;flex-direction:column;gap:12px;padding:18px;
-      background:rgba(255,255,255,.95);border-radius:18px;box-shadow:0 24px 50px rgba(0,0,0,.35);
-      pointer-events:auto;transform:translateY(-16px);opacity:0;animation:drop .45s ease-out forwards;
+    .btn{
+      padding:14px 20px; border:0; border-radius:12px; cursor:pointer;
+      background:#fff; color:#111; font-weight:700; font-size:16px;
+      box-shadow:0 8px 24px rgba(0,0,0,.25);
     }
-    @keyframes drop{from{opacity:0;transform:translateY(-24px)}to{opacity:1;transform:translateY(0)}}
-    .title{font-weight:800;font-size:18px;color:#0f172a;text-align:center;margin-bottom:4px}
-    .btn{padding:14px 18px;border:0;border-radius:12px;cursor:pointer;background:#111827;color:#fff;font-weight:700;font-size:15px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
-    .btn.alt{background:#e5e7eb;color:#111}
-    .row{display:flex;gap:10px;flex-wrap:wrap}
-
-    /* Дээд талын буцах товч */
-    #back{
-      position:fixed;right:12px;top:12px;z-index:var(--z-ui);display:none;
-      padding:10px 14px;border:0;border-radius:12px;background:rgba(255,255,255,.92);color:#111;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.25)
-    }
+    .btn:active{ transform:scale(0.98) }
 
     /* Autoplay сануулга */
-    #toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:var(--z-toast);background:rgba(0,0,0,.72);color:#fff;border-radius:10px;padding:10px 14px;font-size:13px;display:none}
+    #toast{
+      position:fixed; left:50%; top:14px; transform:translateX(-50%);
+      z-index:var(--z-toast); background:rgba(0,0,0,.72); color:#fff;
+      border-radius:10px; padding:10px 14px; font-size:13px; display:none
+    }
   </style>
 </head>
 <body>
   <!-- Камер -->
   <video id="cam" playsinline autoplay muted></video>
 
-  <!-- Видеонууд -->
+  <!-- Альфа видеонууд -->
   <div id="overlay-wrap">
     <video id="intro" class="overlay" playsinline></video>
     <video id="exercise" class="overlay" playsinline loop></video>
   </div>
 
-  <!-- Меню -->
-  <section id="panel-menu" class="panel">
-    <div class="card">
-      <div class="title">Дараагийн алхам</div>
-      <button class="btn" id="go-exercise">Дасгал (Loop)</button>
-      <div class="row">
-        <button class="btn alt" id="go-info">Мэдээлэл</button>
-        <button class="btn alt" id="go-guide">Заавар</button>
-      </div>
-    </div>
-  </section>
+  <!-- Меню (төвд) -->
+  <div id="menu">
+    <button class="btn" id="btnExercise">Дасгал (Loop)</button>
+    <button class="btn" id="btnInfo">Мэдээлэл</button>
+    <button class="btn" id="btnGuide">Заавар</button>
+  </div>
 
-  <!-- Info -->
-  <section id="panel-info" class="panel">
-    <div class="card">
-      <div class="title">Мэдээлэл</div>
-      <p style="margin:0;color:#111">Энд таны текст/зургийг байрлуулна. Дараа нь нэмэлт товч, холбоос нэмж болно.</p>
-      <div class="row"><button class="btn" data-back>Буцах</button></div>
-    </div>
-  </section>
-
-  <!-- Guide -->
-  <section id="panel-guide" class="panel">
-    <div class="card">
-      <div class="title">Заавар</div>
-      <ul style="margin:0 0 6px 18px;color:#111;line-height:1.35">
-        <li>Камерын зөвшөөрөл өгөх</li>
-        <li>Intro дууссаны дараа меню гарна</li>
-        <li>“Дасгал” дээр дарж дасгалын видеог үзнэ (loop)</li>
-        <li>Видеог хуруугаар чирж зөөж, хоёр хуруугаар томруулна/жижиглэнэ</li>
-      </ul>
-      <div class="row"><button class="btn" data-back>Буцах</button></div>
-    </div>
-  </section>
-
-  <!-- Дээд буцах -->
-  <button id="back">Буцах</button>
   <div id="toast">🔊 Дууг идэвхжүүлэхийн тулд дэлгэц дээр нэг дарна уу</div>
 
 <script>
-  /* ==== ТАНЫ ВИДЕО URL-ууд ==== */
+  /* ====== Видео URL-ууд ====== */
   const INTRO_URL    = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
   const EXERCISE_URL = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-  // iOS байвал HEVC+hvc1-г 2 дахь <source> байдлаар нэмэж болно.
+  // iOS хэрэгцээтэй бол HEVC+hvc1 source-ыг хоёр дахь <source> байдлаар нэмээрэй.
 
-  /* ==== Элементүүд ==== */
+  /* ====== Элементүүд ====== */
   const cam  = document.getElementById('cam');
   const wrap = document.getElementById('overlay-wrap');
   const intro= document.getElementById('intro');
   const ex   = document.getElementById('exercise');
-  const toast= document.getElementById('toast');
+  const menu = document.getElementById('menu');
+  const btnExercise = document.getElementById('btnExercise');
+  const toast = document.getElementById('toast');
 
-  const P_MENU  = document.getElementById('panel-menu');
-  const P_INFO  = document.getElementById('panel-info');
-  const P_GUIDE = document.getElementById('panel-guide');
-
-  const btnBack = document.getElementById('back');
-  const btnExercise = document.getElementById('go-exercise');
-  const btnInfo     = document.getElementById('go-info');
-  const btnGuide    = document.getElementById('go-guide');
-
-  /* ==== Камер ==== */
+  /* ====== Камер ====== */
   async function startCamera(){
-    const s = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' } }, audio:false });
+    const s = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ ideal:'environment' } }, audio:false
+    });
     cam.srcObject = s; await cam.play();
   }
 
-  /* ==== Видео эх сурвалж ==== */
+  /* ====== Видео эх сурвалж ====== */
   function setVideo(el, url){
     el.innerHTML = "";
     const s = document.createElement('source');
@@ -137,40 +109,48 @@
     el.appendChild(s);
   }
 
-  /* ==== Parallax (gyro) ==== */
+  /* ====== Gyro parallax (бага зэрэг) ====== */
   let parallax = {x:0, y:0};
   if (window.DeviceOrientationEvent) {
     window.addEventListener('deviceorientation', e=>{
       const nx = Math.max(-15, Math.min(15, e.gamma || 0)) / 15;
       const ny = Math.max(-15, Math.min(15, e.beta  || 0)) / 15;
-      parallax.x = nx * 10; parallax.y = ny * 6;
+      parallax.x = nx * 8; parallax.y = ny * 5;
       applyTransform();
     }, true);
   }
 
-  /* ==== Drag + Zoom (bounded) ==== */
-  let active=null, scale=1, startScale=1, tx=0, ty=0, sx=0, sy=0, startDist=0;
-  const clamp = () => {
-    const w = Math.min(window.innerWidth, 800);
-    const limitX = w*0.25, limitY = 120;
+  /* ====== Drag + Pinch-Zoom (өргөн хүрээтэй) ====== */
+  let active=null, scale=1.15, startScale=1.15, tx=0, ty=0, sx=0, sy=0, startDist=0;
+
+  function bounds(){
+    // дэлгэцтэй уялдсан хязгаар
+    const w = window.innerWidth, h = window.innerHeight;
+    const limitX = Math.max(120, w * 0.35);
+    const limitY = Math.max(140, h * 0.28);
     tx = Math.max(-limitX, Math.min(limitX, tx));
     ty = Math.max(-limitY, Math.min(limitY, ty));
-    scale = Math.max(0.85, Math.min(1.6, scale));
-  };
-  function applyTransform(){
-    if(!active) return; clamp();
-    active.style.transform =
-      `translate(calc(-50% + ${tx + parallax.x}px), calc(-50% + ${ty + parallax.y}px)) rotateX(11deg) scale(${scale})`;
+    // илүү өргөн масштаб
+    scale = Math.max(0.7, Math.min(2.4, scale));
   }
-  function resetTransform(){ scale=1; tx=0; ty=0; applyTransform(); }
+  function applyTransform(){
+    if(!active) return; bounds();
+    active.style.transform =
+      `translate(calc(-50% + ${tx + parallax.x}px), calc(-50% + ${ty + parallax.y}px)) rotateX(8deg) scale(${scale})`;
+  }
+  function resetTransform(){
+    scale = 1.15; tx = 0; ty = 0; applyTransform();
+  }
   const dist=(a,b)=>Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
 
+  // mouse drag
   wrap.addEventListener('mousedown', e=>{
     sx = e.clientX - tx; sy = e.clientY - ty;
     const mm = e2 => { tx = e2.clientX - sx; ty = e2.clientY - sy; applyTransform(); };
     const mu = () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
     window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
   });
+  // touch drag + pinch
   wrap.addEventListener('touchstart', e=>{
     if(!active) return;
     if(e.touches.length===1){ sx=e.touches[0].clientX - tx; sy=e.touches[0].clientY - ty; }
@@ -182,10 +162,11 @@
     else if(e.touches.length===2){ const d = dist(e.touches[0], e.touches[1]); scale = startScale * (d/startDist); }
     applyTransform();
   }, {passive:false});
+  // давхар товш → reset
   let lastTap=0;
   wrap.addEventListener('click', ()=>{ const n=Date.now(); if(n-lastTap<300) resetTransform(); lastTap=n; });
 
-  /* ==== Аудио autoplay fallback ==== */
+  /* ====== Аудио autoplay fallback ====== */
   async function playWithAudio(el){
     el.muted=false;
     try{ await el.play(); toast.style.display='none'; }
@@ -197,44 +178,35 @@
     }
   }
 
-  /* ==== Панель удирдлага ==== */
-  function hideAllPanels(){ P_MENU.style.display='none'; P_INFO.style.display='none'; P_GUIDE.style.display='none'; }
-  function showPanel(panel){ hideAllPanels(); panel.style.display='flex'; btnBack.style.display='inline-block'; }
-  function showMenu(){ hideAllPanels(); P_MENU.style.display='flex'; btnBack.style.display='none'; }
-
-  btnBack.addEventListener('click', ()=>{
-    // видео тоглож байвал зогсоогоод нуух
-    if (!P_MENU.style.display || P_MENU.style.display==='none') {
-      ex.pause(); ex.style.display='none';
-      active=null;
-    }
-    showMenu();
-  });
-  // дотоод "Буцах" товчууд
-  document.querySelectorAll('[data-back]').forEach(b=>b.addEventListener('click', ()=>btnBack.click()));
-
-  /* ==== Урсгал ==== */
+  /* ====== Урсгал ====== */
   async function boot(){
     try{ await startCamera(); } catch(e){ alert("Камерын зөвшөөрөл хэрэгтэй: "+e.message); return; }
-    setVideo(intro, INTRO_URL); setVideo(ex, EXERCISE_URL);
+
+    setVideo(intro, INTRO_URL);
+    setVideo(ex,    EXERCISE_URL);
 
     wrap.style.display='block';
+
+    // Intro — төвдөө томоор
     active = intro; resetTransform();
     intro.currentTime=0; intro.loop=false; intro.style.display='block';
     await playWithAudio(intro);
   }
 
-  // Intro дуусмагц меню
-  intro.addEventListener('ended', ()=>{ intro.style.display='none'; active=null; showMenu(); });
-
-  // Меню товчнууд
-  btnExercise.addEventListener('click', async ()=>{
-    hideAllPanels(); btnBack.style.display='inline-block';
-    ex.currentTime=0; ex.loop=true; ex.style.display='block';
-    active = ex; resetTransform(); await playWithAudio(ex);
+  // Intro дуусмагц → төв меню
+  intro.addEventListener('ended', ()=>{
+    intro.style.display='none';
+    active=null;
+    menu.style.display='flex';
   });
-  btnInfo.addEventListener('click',  ()=> showPanel(P_INFO));
-  btnGuide.addEventListener('click', ()=> showPanel(P_GUIDE));
+
+  // Дасгал (loop) — хэрэглэгч хүссэнээрээ томруулж/жижигрүүлж/зөөж чадна
+  btnExercise.addEventListener('click', async ()=>{
+    menu.style.display='none';
+    ex.currentTime=0; ex.loop=true; ex.style.display='block';
+    active = ex; resetTransform();
+    await playWithAudio(ex);
+  });
 
   window.addEventListener('DOMContentLoaded', boot);
 </script>
