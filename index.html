@@ -3,32 +3,15 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Instant World Tracking (Anchors)</title>
+  <title>WebAR — Intro→Меню→Дасгал (Zappar Instant World Tracking)</title>
   <style>
     :root { --z-cam:0; --z-canvas:1; --z-video:2; --z-menu:3; --z-toast:4; }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial}
-    #cam{
-      position:fixed;inset:0;width:100%;height:100%;
-      object-fit:cover;background:#000;z-index:var(--z-cam);
-      transform:scaleX(-1);
-    }
-    #unity-canvas{
-      position:fixed;inset:0;width:100vw;height:100vh;
-      background:transparent!important;z-index:var(--z-canvas);display:none;
-    }
-    #overlay-wrap{
-      position:fixed;inset:0;z-index:var(--z-video);
-      display:none; touch-action:none;
-    }
-    .overlay{
-      position:absolute;inset:0;width:100%;height:100%;
-      object-fit:contain;background:transparent;display:none;pointer-events:auto;
-      transform-origin:center center; transform:translate(0px,0px) scale(1);
-    }
-    #menu{
-      position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-menu);
-      pointer-events:none;background:none;animation:fadeIn .35s ease both;
-    }
+    #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000;z-index:var(--z-cam);transform:scaleX(-1)}
+    #unity-canvas{position:fixed;inset:0;width:100vw;height:100vh;background:transparent!important;z-index:var(--z-canvas);display:none}
+    #overlay-wrap{position:fixed;inset:0;z-index:var(--z-video);display:none;touch-action:none}
+    .overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:transparent;display:none;pointer-events:auto;transform-origin:center center;transform:translate(0px,0px) scale(1)}
+    #menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-menu);pointer-events:none;background:none;animation:fadeIn .35s ease both}
     .menu-inner{display:flex;flex-direction:column;gap:12px;pointer-events:auto;transform:translateY(18px);opacity:0;animation:slideUp .4s .05s ease-out both}
     .btn{width:200px;text-align:center;padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;font-size:16px;box-shadow:0 8px 28px rgba(0,0,0,.25);transform:translateY(0);transition:transform .15s ease}
     .btn:active{transform:translateY(1px)}
@@ -39,6 +22,7 @@
   </style>
 </head>
 <body>
+  <!-- Камер + интро/видео UI -->
   <video id="cam" playsinline autoplay muted></video>
   <canvas id="unity-canvas"></canvas>
 
@@ -59,13 +43,15 @@
   <div id="toast">🔊 Дууг идэвхжүүлэхийн тулд дэлгэц дээр нэг дарна уу</div>
 
 <script>
-  const INTRO_URL    = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
-  const EXERCISE_URL = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
+  const INTRO_URL          = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
+  const EXERCISE_URL       = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
+  const MP4_EXERCISE_URL   = ""; // iOS-д MP4 ашиглах бол энд нэм: жишээ нь "https://.../dasgal.mp4"
 
-  const cam = document.getElementById('cam');
-  const wrap = document.getElementById('overlay-wrap');
+  const cam   = document.getElementById('cam');
+  const wrap  = document.getElementById('overlay-wrap');
   const intro = document.getElementById('intro');
   const exercise = document.getElementById('exercise');
+  const menu  = document.getElementById('menu');
   const toast = document.getElementById('toast');
   const resetBtn = document.getElementById('reset');
 
@@ -80,95 +66,48 @@
   }
 
   async function startCamera(){
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:{ ideal:'environment' } }, audio:false
-    });
-    cam.srcObject = stream;
-    await cam.play();
+    const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' } }, audio:false });
+    cam.srcObject = stream; await cam.play();
   }
 
   async function stopCam(){
     try{
       if(cam.srcObject){ cam.srcObject.getTracks().forEach(t=>t.stop()); }
-      cam.srcObject = null;
-      cam.style.display = 'none';
+      cam.srcObject = null; cam.style.display = 'none';
     }catch(e){}
   }
 
-  // make globals for module script
-  window.stopCam = stopCam;
-
-  function setSources(videoEl, webmUrl){
+  function setSources(videoEl, webmUrl, mp4Url=""){
     videoEl.innerHTML = "";
-    const s1 = document.createElement('source');
-    s1.src = webmUrl;
-    s1.type = 'video/webm; codecs="vp8,opus"';
-    videoEl.appendChild(s1);
+    videoEl.crossOrigin = "anonymous";
+    videoEl.preload = "auto";
+
+    if (webmUrl){
+      const s1 = document.createElement('source');
+      s1.src = webmUrl;
+      s1.type = 'video/webm; codecs="vp8,opus"';
+      videoEl.appendChild(s1);
+    }
+    if (mp4Url){
+      const s2 = document.createElement('source');
+      s2.src = mp4Url;
+      s2.type = 'video/mp4';
+      videoEl.appendChild(s2);
+    }
+    videoEl.load();
   }
-
-  let active = null;
-  let scale = 1, startScale = 1;
-  let tx = 0, ty = 0, startX = 0, startY = 0;
-  let startDist = 0;
-  const dist = (t0, t1) => {
-    const dx = t0.clientX - t1.clientX, dy = t0.clientY - t1.clientY;
-    return Math.hypot(dx,dy);
-  };
-  function applyTransform(){ if (!active) return; active.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; }
-  function resetTransform(){ scale = 1; tx = 0; ty = 0; applyTransform(); }
-
-  function bindGesture(el){
-    el.addEventListener('mousedown', e=>{
-      startX = e.clientX - tx; startY = e.clientY - ty;
-      const mm = e2 => { tx = e2.clientX - startX; ty = e2.clientY - startY; applyTransform(); };
-      const mu = () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
-      window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
-    });
-    el.addEventListener('touchstart', e=>{
-      if (!active) return;
-      if (e.touches.length === 1){ startX = e.touches[0].clientX - tx; startY = e.touches[0].clientY - ty; }
-      else if (e.touches.length === 2){ startDist = dist(e.touches[0], e.touches[1]); startScale = scale; }
-    }, {passive:false});
-    el.addEventListener('touchmove', e=>{
-      if (!active) return; e.preventDefault();
-      if (e.touches.length === 1){ tx = e.touches[0].clientX - startX; ty = e.touches[0].clientY - startY; }
-      else if (e.touches.length === 2){ const d = dist(e.touches[0], e.touches[1]); scale = Math.max(0.5, Math.min(3, startScale * (d / startDist))); }
-      applyTransform();
-    }, {passive:false});
-  }
-
-  wrap.addEventListener('mousedown', e=>{
-    startX = e.clientX - tx; startY = e.clientY - ty;
-    const mm = e2 => { tx = e2.clientX - startX; ty = e2.clientY - startY; applyTransform(); };
-    const mu = () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
-    window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
-  });
-  wrap.addEventListener('touchstart', e=>{
-    if (!active) return;
-    if (e.touches.length === 1){ startX = e.touches[0].clientX - tx; startY = e.touches[0].clientY - ty; }
-    else if (e.touches.length === 2){ startDist = dist(e.touches[0], e.touches[1]); startScale = scale; }
-  }, {passive:false});
-  wrap.addEventListener('touchmove', e=>{
-    if (!active) return; e.preventDefault();
-    if (e.touches.length === 1){ tx = e.touches[0].clientX - startX; ty = e.touches[0].clientY - startY; }
-    else if (e.touches.length === 2){ const d = dist(e.touches[0], e.touches[1]); scale = Math.max(0.5, Math.min(3, startScale * (d / startDist))); }
-    applyTransform();
-  }, {passive:false});
-
-  let lastTap = 0;
-  wrap.addEventListener('click', ()=>{ const now = Date.now(); if (now - lastTap < 300) resetTransform(); lastTap = now; });
-  resetBtn.addEventListener('click', resetTransform);
 
   async function boot(){
     try{ await startCamera(); await ensureAudioFromStart(); }
     catch(err){ alert("Камерын зөвшөөрөл хэрэгтэй: " + err.message); return; }
+
     setSources(intro, INTRO_URL);
-    setSources(exercise, EXERCISE_URL);
-    bindGesture(intro); bindGesture(exercise);
-    wrap.style.display = "block"; resetBtn.style.display = "inline-block";
-    active = intro; resetTransform();
-    intro.currentTime = 0; intro.style.display = "block";
-    intro.muted = false; intro.volume = 1.0;
+    setSources(exercise, EXERCISE_URL, MP4_EXERCISE_URL);
+
+    wrap.style.display = "block";
+    resetBtn.style.display = "inline-block";
+
+    intro.currentTime = 0; intro.style.display = "block"; intro.muted = false; intro.volume = 1.0;
     try{ await intro.play(); toast.style.display = "none"; }
     catch(e){
       toast.textContent = "🔊 Дууг идэвхжүүлэхийн тулд дэлгэц дээр нэг дарна уу";
@@ -179,144 +118,105 @@
     }
   }
   window.boot = boot;
+  window.stopCam = stopCam;
 
   intro.addEventListener('ended', ()=>{
     intro.style.display = "none";
-    document.getElementById('menu').style.display = "flex";
+    menu.style.display = "flex";
   });
 </script>
 
-<!-- ===== three.js + WebXR (Instant World Tracking via anchors) ===== -->
+<!-- Zappar THREE.js (CDN) -->
+<script src="https://libs.zappar.com/zappar-threejs/2.5.2/zappar-threejs.js"></script>
+
+<!-- three.js (ESM) + Zappar AR код -->
 <script type="module">
   import * as THREE from 'https://unpkg.com/three@0.152.2/build/three.module.js';
+  const ZapparThree = window.ZapparThree;
 
-  const menuEl = document.getElementById('menu');
-  const overlayWrapEl = document.getElementById('overlay-wrap');
+  let renderer, scene, camera, instantTracker, anchorGroup, videoMesh, placed = false;
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.xr.enabled = true;
-  document.body.appendChild(renderer.domElement);
-  Object.assign(renderer.domElement.style, { position:'fixed', inset:'0', width:'100vw', height:'100vh', zIndex:'1', background:'transparent' });
-
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
-
-  let xrRefSpace, placed = false, anchor = null, session;
-
-  // Instant World Tracking — anchors
-  const sessionInit = {
-    requiredFeatures: ['anchors'],
-    optionalFeatures: ['dom-overlay','unbounded'],
-    domOverlay: { root: document.body }
-  };
-
-  async function startAR() {
-    if (!navigator.xr) { alert('WebXR дэмждэггүй браузер (Chrome Android ашиглаарай).'); return; }
-
-    try {
-      session = await navigator.xr.requestSession('immersive-ar', sessionInit);
-    } catch (e) {
-      alert('Anchors дэмжихгүй байна. Chrome Android, WebXR Flags шалгана уу.');
-      return;
-    }
-
-    session.addEventListener('end', () => {
-      placed = false; anchor = null; if (videoMesh) videoMesh.visible = false;
-    });
-
-    // дэлгэц товшиход дахин байршуулна
-    session.addEventListener('select', () => { queuedReposition = true; });
-
-    renderer.xr.setReferenceSpaceType('local');
-    await renderer.xr.setSession(session);
-
-    xrRefSpace = await session.requestReferenceSpace('local');
-
-    onWindowResize();
-    window.addEventListener('resize', onWindowResize);
-    renderer.setAnimationLoop(onXRFrame);
+  function makeRenderer(){
+    renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    Object.assign(renderer.domElement.style, { position:'fixed', inset:'0', width:'100vw', height:'100vh', zIndex:'1', background:'transparent' });
+    window.addEventListener('resize', ()=>renderer.setSize(window.innerWidth, window.innerHeight));
   }
 
-  function onWindowResize(){ renderer.setSize(window.innerWidth, window.innerHeight); }
+  async function startZapparAR(){
+    makeRenderer();
+    ZapparThree.glContextSet(renderer.getContext()); // Zappar-д WebGL context
 
-  // === HTML-видеог texture болгох ===
-  const exerciseEl = document.getElementById('exercise');
-  const videoTex = new THREE.VideoTexture(exerciseEl);
-  videoTex.encoding = THREE.sRGBEncoding;
+    camera = new ZapparThree.Camera();
+    scene  = new THREE.Scene();
+    scene.background = camera.backgroundTexture;
 
-  const planeGeo = new THREE.PlaneGeometry(1.2, 0.68); // 1.2м x 0.68м
-  const planeMat = new THREE.MeshBasicMaterial({ map: videoTex, transparent: true, side: THREE.DoubleSide });
-  const videoMesh = new THREE.Mesh(planeGeo, planeMat);
-  videoMesh.visible = false;
-  scene.add(videoMesh);
+    const granted = await ZapparThree.permissionRequest();
+    if(!granted){ ZapparThree.permissionDeniedUI(); return; }
+    camera.start();  // арын камер
 
-  // Камерын урд талд anchor тавих
-  async function ensureAnchorInFront(frame, distanceM = 1.2) {
-    const pose = frame.getViewerPose(xrRefSpace);
-    if (!pose) return;
+    // Instant World Tracking
+    instantTracker = new ZapparThree.InstantWorldTracker();
+    anchorGroup    = new ZapparThree.InstantWorldAnchorGroup(camera, instantTracker);
+    scene.add(anchorGroup);
 
-    const view = pose.views[0];
-    const { position, orientation } = view.transform;
+    // Видео texture
+    const exerciseEl = document.getElementById('exercise');
+    const tex = new THREE.VideoTexture(exerciseEl);
+    tex.encoding = THREE.sRGBEncoding;
 
-    const camQuat = new THREE.Quaternion(orientation.x, orientation.y, orientation.z, orientation.w);
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camQuat); // -Z (урд)
-    const origin = new THREE.Vector3(position.x, position.y, position.z);
-    const target = origin.clone().add(forward.multiplyScalar(distanceM));
+    const planeGeo = new THREE.PlaneGeometry(1.2, 0.68); // метрээр
+    const planeMat = new THREE.MeshBasicMaterial({ map: tex, transparent:true, side: THREE.DoubleSide });
+    videoMesh = new THREE.Mesh(planeGeo, planeMat);
+    videoMesh.rotation.x = -Math.PI/2; // газарт параллель
+    anchorGroup.add(videoMesh);
 
-    // Хуучин anchor байвал устгана
-    if (anchor && anchor.delete) {
-      try { anchor.delete(); } catch {}
+    // Loop
+    function animate(){
+      requestAnimationFrame(animate);
+      if(!placed) instantTracker.setAnchorPoseFromCameraOffset(0, 0, -2); // дэлгэцийн өмнө ~2м
+      camera.updateFrame(renderer);
+      renderer.render(scene, camera);
     }
+    animate();
 
-    const rigid = new XRRigidTransform(
-      { x: target.x, y: target.y, z: target.z },
-      { x: camQuat.x, y: camQuat.y, z: camQuat.z, w: camQuat.w }
-    );
+    // Эхний товшилтоор байрлуулж play
+    const onFirstTap = ()=>{
+      placed = true;
+      // overlay-wrap-ыг "display:none" биш, visibility:hidden болгоно
+      const wrap = document.getElementById('overlay-wrap');
+      wrap.style.visibility = 'hidden';
+      wrap.style.pointerEvents = 'none';
 
-    anchor = await frame.createAnchor(rigid, xrRefSpace);
-    placed = true;
+      const v = document.getElementById('exercise');
+      v.muted = false;
+      v.currentTime = 0;
+      v.play().catch(()=>{
+        // шаардлагатай бол дахин товшилтоор unmute/play
+      });
 
-    // Видео тоглуулах (autoplay fallback)
-    exerciseEl.muted = false; exerciseEl.currentTime = 0;
-    exerciseEl.play().catch(() => {
-      exerciseEl.muted = true;
-      exerciseEl.play().catch(()=>{});
-      const enableAudio = () => { exerciseEl.muted = false; document.removeEventListener('pointerdown', enableAudio, {passive:true}); };
-      document.addEventListener('pointerdown', enableAudio, {passive:true, once:true});
-    });
-
-    videoMesh.visible = true;
+      window.removeEventListener('pointerdown', onFirstTap);
+    };
+    window.addEventListener('pointerdown', onFirstTap, {once:true, passive:true});
   }
 
-  let queuedReposition = false;
+  // "Дасгал" → AR эхлүүлэх
+  document.getElementById('btnExercise').addEventListener('click', async ()=>{
+    document.getElementById('menu').style.display = 'none';
 
-  function onXRFrame(t, frame) {
-    if (!placed || queuedReposition) { queuedReposition = false; ensureAnchorInFront(frame, 1.2); }
+    // ВИДЕОГ ДЕКОДЛУУЛАХЫН ТУЛД display:none БИШ!
+    const wrap = document.getElementById('overlay-wrap');
+    wrap.style.visibility = 'hidden';
+    wrap.style.pointerEvents = 'none';
+    if (wrap.style.display !== 'block') wrap.style.display = 'block'; // DOM-д байлга
 
-    if (anchor) {
-      const anchorPose = frame.getPose(anchor.anchorSpace, xrRefSpace);
-      if (anchorPose) {
-        const m = new THREE.Matrix4().fromArray(anchorPose.transform.matrix);
-        videoMesh.matrixAutoUpdate = false; // anchor дагахад matrix-ээр шууд тавина
-        videoMesh.matrix.copy(m);
-        // Хэрэв газарт хэвтүүлэхийг хүсвэл:
-        // videoMesh.rotation.x = -Math.PI/2; videoMesh.updateMatrix();
-      }
-    }
-
-    renderer.render(scene, camera);
-  }
-
-  // "Дасгал" дармагц AR эхлүүлнэ
-  document.getElementById('btnExercise').addEventListener('click', async () => {
-    menuEl.style.display = 'none';
-    overlayWrapEl.style.display = 'none';
-    await window.stopCam();   // getUserMedia унтрааж WebXR-д камер суллана
-    await startAR();
+    await window.stopCam();   // getUserMedia унтрааж Zappar-д камерыг суллана
+    await startZapparAR();
   });
 
-  // Эхний ачаалалт (интро, меню)
+  // Эхний ачаалалт
   window.addEventListener('DOMContentLoaded', window.boot);
 </script>
 </body>
