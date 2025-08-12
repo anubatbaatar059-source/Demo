@@ -8,23 +8,20 @@
     :root { --z-cam:0; --z-video:2; --z-ui:5; --z-toast:6 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial}
 
-    /* Камер (арын) */
     #cam{
       position:fixed; inset:0; width:100%; height:100%;
       object-fit:cover; background:#000; z-index:var(--z-cam);
       transform:scaleX(-1);
     }
 
-    /* Overlay wrapper (gesture авах) */
     #overlay-wrap{
       position:fixed; inset:0; z-index:var(--z-video);
       display:none; touch-action:none; perspective:1000px;
     }
 
-    /* Альфа видео — төвдөө томоор (хэрэглэгч өөрчилж чадна) */
     .overlay{
       position:absolute; left:50%; top:55%;
-      width:clamp(60vw, 72vw, 92vw);            /* анхны том хэмжээ */
+      width:clamp(60vw, 72vw, 92vw);
       height:auto;
       transform:translate(-50%,-50%) rotateX(8deg) scale(1.15);
       transform-origin:center center;
@@ -37,7 +34,7 @@
       to  {opacity:1;transform:translate(-50%,-50%) rotateX(8deg)  scale(1.15)}
     }
 
-    /* Меню — дэлгэцийн яг төвд, тус тусдаа товч */
+    /* Меню — дэлгэцийн төвд */
     #menu{
       position:fixed;
       top:50%; left:50%; transform:translate(-50%,-50%);
@@ -45,8 +42,10 @@
       z-index:var(--z-ui); pointer-events:auto;
     }
     .btn{
+      width:180px; /* бүх товч ижил өргөн */
       padding:14px 20px; border:0; border-radius:12px; cursor:pointer;
       background:#fff; color:#111; font-weight:700; font-size:16px;
+      text-align:center;
       box-shadow:0 8px 24px rgba(0,0,0,.25);
     }
     .btn:active{ transform:scale(0.98) }
@@ -57,34 +56,47 @@
       z-index:var(--z-toast); background:rgba(0,0,0,.72); color:#fff;
       border-radius:10px; padding:10px 14px; font-size:13px; display:none
     }
+
+    /* Scale controller */
+    #ctrl{
+      position:fixed; left:12px; bottom:16px; z-index:var(--z-ui);
+      display:flex; gap:8px; align-items:center; background:rgba(17,17,17,.65);
+      padding:8px; border-radius:12px; backdrop-filter: blur(6px);
+    }
+    #ctrl button{
+      padding:8px 10px; border:0; border-radius:10px; background:#fff; color:#111;
+      font-weight:700; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,.25);
+    }
+    #scaleVal{ color:#fff; font-weight:700; min-width:54px; text-align:center }
   </style>
 </head>
 <body>
-  <!-- Камер -->
   <video id="cam" playsinline autoplay muted></video>
 
-  <!-- Альфа видеонууд -->
   <div id="overlay-wrap">
     <video id="intro" class="overlay" playsinline></video>
     <video id="exercise" class="overlay" playsinline loop></video>
   </div>
 
-  <!-- Меню (төвд) -->
   <div id="menu">
     <button class="btn" id="btnExercise">Дасгал (Loop)</button>
     <button class="btn" id="btnInfo">Мэдээлэл</button>
     <button class="btn" id="btnGuide">Заавар</button>
   </div>
 
+  <div id="ctrl">
+    <button id="scaleMinus">−</button>
+    <div id="scaleVal">100%</div>
+    <button id="scalePlus">+</button>
+    <button id="scaleReset">Reset</button>
+  </div>
+
   <div id="toast">🔊 Дууг идэвхжүүлэхийн тулд дэлгэц дээр нэг дарна уу</div>
 
 <script>
-  /* ====== Видео URL-ууд ====== */
   const INTRO_URL    = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
   const EXERCISE_URL = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-  // iOS хэрэгцээтэй бол HEVC+hvc1 source-ыг хоёр дахь <source> байдлаар нэмээрэй.
 
-  /* ====== Элементүүд ====== */
   const cam  = document.getElementById('cam');
   const wrap = document.getElementById('overlay-wrap');
   const intro= document.getElementById('intro');
@@ -93,7 +105,6 @@
   const btnExercise = document.getElementById('btnExercise');
   const toast = document.getElementById('toast');
 
-  /* ====== Камер ====== */
   async function startCamera(){
     const s = await navigator.mediaDevices.getUserMedia({
       video:{ facingMode:{ ideal:'environment' } }, audio:false
@@ -101,7 +112,6 @@
     cam.srcObject = s; await cam.play();
   }
 
-  /* ====== Видео эх сурвалж ====== */
   function setVideo(el, url){
     el.innerHTML = "";
     const s = document.createElement('source');
@@ -109,7 +119,6 @@
     el.appendChild(s);
   }
 
-  /* ====== Gyro parallax (бага зэрэг) ====== */
   let parallax = {x:0, y:0};
   if (window.DeviceOrientationEvent) {
     window.addEventListener('deviceorientation', e=>{
@@ -120,17 +129,13 @@
     }, true);
   }
 
-  /* ====== Drag + Pinch-Zoom (өргөн хүрээтэй) ====== */
   let active=null, scale=1.15, startScale=1.15, tx=0, ty=0, sx=0, sy=0, startDist=0;
-
   function bounds(){
-    // дэлгэцтэй уялдсан хязгаар
     const w = window.innerWidth, h = window.innerHeight;
     const limitX = Math.max(120, w * 0.35);
     const limitY = Math.max(140, h * 0.28);
     tx = Math.max(-limitX, Math.min(limitX, tx));
     ty = Math.max(-limitY, Math.min(limitY, ty));
-    // илүү өргөн масштаб
     scale = Math.max(0.7, Math.min(2.4, scale));
   }
   function applyTransform(){
@@ -139,18 +144,16 @@
       `translate(calc(-50% + ${tx + parallax.x}px), calc(-50% + ${ty + parallax.y}px)) rotateX(8deg) scale(${scale})`;
   }
   function resetTransform(){
-    scale = 1.15; tx = 0; ty = 0; applyTransform();
+    scale = 1.15; tx = 0; ty = 0; applyTransform(); updateScaleLabel();
   }
   const dist=(a,b)=>Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
 
-  // mouse drag
   wrap.addEventListener('mousedown', e=>{
     sx = e.clientX - tx; sy = e.clientY - ty;
     const mm = e2 => { tx = e2.clientX - sx; ty = e2.clientY - sy; applyTransform(); };
     const mu = () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
     window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
   });
-  // touch drag + pinch
   wrap.addEventListener('touchstart', e=>{
     if(!active) return;
     if(e.touches.length===1){ sx=e.touches[0].clientX - tx; sy=e.touches[0].clientY - ty; }
@@ -162,11 +165,9 @@
     else if(e.touches.length===2){ const d = dist(e.touches[0], e.touches[1]); scale = startScale * (d/startDist); }
     applyTransform();
   }, {passive:false});
-  // давхар товш → reset
   let lastTap=0;
   wrap.addEventListener('click', ()=>{ const n=Date.now(); if(n-lastTap<300) resetTransform(); lastTap=n; });
 
-  /* ====== Аудио autoplay fallback ====== */
   async function playWithAudio(el){
     el.muted=false;
     try{ await el.play(); toast.style.display='none'; }
@@ -178,35 +179,43 @@
     }
   }
 
-  /* ====== Урсгал ====== */
   async function boot(){
     try{ await startCamera(); } catch(e){ alert("Камерын зөвшөөрөл хэрэгтэй: "+e.message); return; }
-
     setVideo(intro, INTRO_URL);
     setVideo(ex,    EXERCISE_URL);
-
     wrap.style.display='block';
-
-    // Intro — төвдөө томоор
     active = intro; resetTransform();
     intro.currentTime=0; intro.loop=false; intro.style.display='block';
     await playWithAudio(intro);
   }
 
-  // Intro дуусмагц → төв меню
   intro.addEventListener('ended', ()=>{
     intro.style.display='none';
     active=null;
     menu.style.display='flex';
   });
 
-  // Дасгал (loop) — хэрэглэгч хүссэнээрээ томруулж/жижигрүүлж/зөөж чадна
   btnExercise.addEventListener('click', async ()=>{
     menu.style.display='none';
     ex.currentTime=0; ex.loop=true; ex.style.display='block';
     active = ex; resetTransform();
     await playWithAudio(ex);
   });
+
+  // === Scale controller ===
+  const ctrlMinus = document.getElementById('scaleMinus');
+  const ctrlPlus  = document.getElementById('scalePlus');
+  const ctrlReset = document.getElementById('scaleReset');
+  const scaleVal  = document.getElementById('scaleVal');
+  function updateScaleLabel(){ scaleVal.textContent = Math.round(scale*100) + '%'; }
+  updateScaleLabel();
+  function stepScale(delta){
+    scale = Math.max(0.7, Math.min(2.4, scale + delta));
+    applyTransform(); updateScaleLabel();
+  }
+  ctrlMinus.addEventListener('click', ()=> stepScale(-0.1));
+  ctrlPlus .addEventListener('click', ()=> stepScale(+0.1));
+  ctrlReset.addEventListener('click', ()=> resetTransform());
 
   window.addEventListener('DOMContentLoaded', boot);
 </script>
