@@ -6,9 +6,13 @@
   <title>WebAR — Intro → Меню → Дасгал</title>
 
   <style>
-    :root { --z-canvas:10; --z-video:2; --z-menu:3; --z-ui:5; --z-debug:20 }
+    :root { --z-canvas:1; --z-video:3; --z-menu:4; --z-ui:5; --z-debug:20 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
 
+    /* AR canvas (камерын фийд) ард талд */
+    canvas.webgl{position:fixed;inset:0;width:100vw;height:100vh;z-index:var(--z-canvas);background:#000}
+
+    /* Дээр давхарлах видео/меню */
     #overlay-wrap{position:fixed;inset:0;z-index:var(--z-video);touch-action:none}
     .overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;background:transparent;display:none}
 
@@ -24,16 +28,16 @@
            padding:6px 8px;border-radius:6px;font:12px/1.2 monospace;white-space:pre-wrap;max-width:90vw}
   </style>
 
-  <!-- CDN (smoke-test-тэй яг адил) -->
+  <!-- CDN (smoke-test-тэй ижил) -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js" defer></script>
   <script src="https://unpkg.com/@zappar/zappar-threejs@2.5.2/umd/zappar-threejs.js" defer></script>
 
   <script>
-    // Service worker-уудыг салгах (хуучин build-үүдээс сэргийлнэ)
+    // хуучин service worker-уудыг салгах
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
     }
-    // Скриптүүд бүрэн бэлэн боллоо
+    // THREE + ZapparThree бэлэн болмогц
     window.__depsReady = new Promise(res => addEventListener('load', () => {
       res({ THREE: window.THREE, ZapparThree: window.ZapparThree });
     }, { once:true }));
@@ -42,11 +46,11 @@
 <body>
   <div id="debug">DEBUG: booting…</div>
 
-  <!-- ▶ ЭХЛҮҮЛЭХ -->
+  <!-- ▶ ЭХЛҮҮЛЭХ (интро-г дуугаар эхлүүлэхийн тулд gesture хэрэгтэй) -->
   <div id="startLayer"><button id="btnStart" class="btn">▶ ЭХЛҮҮЛЭХ</button></div>
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
 
-  <!-- Дээр давхарлах DOM видео -->
+  <!-- Дээр давхарлах видео давхарга -->
   <div id="overlay-wrap">
     <video id="intro" class="overlay" playsinline></video>
     <video id="exercise" class="overlay" playsinline loop></video>
@@ -95,7 +99,7 @@
       el.load();
     }
 
-    // ▶ эхлүүлэх
+    // ▶ интро-г эхлүүлэх (дууны policy-н улмаас хэрэглэгчийн даралт хэрэгтэй)
     btnStart.addEventListener('click', async () => {
       await ensureAudio();
       setSources(intro, INTRO_URL);
@@ -109,7 +113,6 @@
         btnUnmute.style.display='none';
         dbg('intro playing (with sound)');
       }catch{
-        // Autoplay дуу хаасан бол muted-ээр асгаад Unmute товч
         intro.muted = true;
         await intro.play().catch(()=>{});
         startLy.style.display='none';
@@ -131,84 +134,100 @@
     });
   </script>
 
-  <!-- ********** WebAR / Zappar ********** -->
+  <!-- ********** WebAR / Zappar (permission-ийг ШУУД on load) ********** -->
   <script>
-    (async function(){
+    let renderer, camera, scene, instantTracker, anchorGroup;
+    (async function initAR(){
       const { THREE, ZapparThree } = await window.__depsReady;
       if (!THREE || !ZapparThree) { alert('THREE/ZapparThree ачаалагдсангүй'); throw new Error('Deps'); }
 
-      document.getElementById('btnExercise').addEventListener('click', async () => {
-        /* overlay давхаргыг бүр мөсөн унтрааж, permission гарч ирэхэд саад болохгүй */
+      // Renderer (canvas-г ар талд байрлуулна)
+      renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.domElement.classList.add('webgl');
+      document.body.appendChild(renderer.domElement);
+      addEventListener('resize', ()=>renderer.setSize(innerWidth, innerHeight));
+      ZapparThree.glContextSet(renderer.getContext());
+
+      if (ZapparThree.browserIncompatible()) { ZapparThree.browserIncompatibleUI(); return; }
+
+      // Камер + Scene
+      camera = new ZapparThree.Camera({ userFacing:false });
+      scene  = new THREE.Scene();
+      scene.background = camera.backgroundTexture;
+
+      // ★ Орохдоо шууд permission асууна
+      const ok = await ZapparThree.permissionRequest();
+      if (!ok) { ZapparThree.permissionDeniedUI(); return; }
+      camera.start();
+      dbg('zappar camera started');
+
+      // Render loop үргэлж ажиллаж байг
+      renderer.setAnimationLoop(()=>{
+        camera.updateFrame(renderer);
+        renderer.render(scene, camera);
+      });
+    })();
+
+    // „Дасгал“ дээр AR контент бэхлэх
+    (async function bindExercise(){
+      const { THREE } = await window.__depsReady;
+
+      document.getElementById('btnExercise').addEventListener('click', () => {
+        // overlay/менюг бүр мөсөн унтрааж, AR-тай харьцах боломж нээнэ
         wrap.style.display = 'none';
         menu.style.display = 'none';
         intro.pause(); exercise.pause();
 
-        // Renderer (smoke-test-тэй яг адил дараалал)
-        const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
-        renderer.setSize(innerWidth, innerHeight);
-        document.body.appendChild(renderer.domElement);
-        window.addEventListener('resize', ()=>renderer.setSize(innerWidth, innerHeight));
-        ZapparThree.glContextSet(renderer.getContext());
+        // Tracker ба anchor-аа нэг удаа бэлдье
+        if (!instantTracker) {
+          // eslint-disable-next-line no-undef
+          instantTracker = new window.ZapparThree.InstantWorldTracker();
+          anchorGroup = new window.ZapparThree.InstantWorldAnchorGroup(camera, instantTracker);
+          scene.add(anchorGroup);
 
-        if (ZapparThree.browserIncompatible()) { ZapparThree.browserIncompatibleUI(); return; }
+          const tex = new THREE.VideoTexture(exercise);
+          tex.colorSpace = THREE.SRGBColorSpace;
 
-        // Camera + Scene
-        const camera = new ZapparThree.Camera({ userFacing:false });
-        const scene  = new THREE.Scene();
-        scene.background = camera.backgroundTexture;
-
-        // *** Энд permission гарна ***
-        const ok = await ZapparThree.permissionRequest();
-        if (!ok) { ZapparThree.permissionDeniedUI(); return; }
-
-        camera.start();
-        dbg('zappar camera started');
-
-        // (Дараагийн AR контентууд — видео plane)
-        const instantTracker = new ZapparThree.InstantWorldTracker();
-        const anchorGroup = new ZapparThree.InstantWorldAnchorGroup(camera, instantTracker);
-        scene.add(anchorGroup);
-
-        const tex = new THREE.VideoTexture(exercise);
-        tex.colorSpace = THREE.SRGBColorSpace;
-
-        function makePlane(){
-          const w = exercise.videoWidth || 1280;
-          const h = exercise.videoHeight || 720;
-          const H = 0.7;
-          const W = H * (w/h);
-          return new THREE.Mesh(
-            new THREE.PlaneGeometry(W, H),
-            new THREE.MeshBasicMaterial({ map: tex, transparent:true, side: THREE.DoubleSide })
-          );
-        }
-        let plane = makePlane();
-        plane.rotation.x = -Math.PI/2;
-        anchorGroup.add(plane);
-
-        exercise.addEventListener('loadedmetadata', ()=>{
-          anchorGroup.remove(plane);
-          plane.geometry.dispose(); plane.material.dispose();
-          plane = makePlane();
+          function makePlane(){
+            const w = exercise.videoWidth || 1280;
+            const h = exercise.videoHeight || 720;
+            const H = 0.7, W = H * (w / h);
+            return new THREE.Mesh(
+              new THREE.PlaneGeometry(W, H),
+              new THREE.MeshBasicMaterial({ map: tex, transparent:true, side: THREE.DoubleSide })
+            );
+          }
+          let plane = makePlane();
           plane.rotation.x = -Math.PI/2;
           anchorGroup.add(plane);
-        }, { once:true });
 
-        let placed = false;
-        renderer.setAnimationLoop(()=>{
-          if(!placed) instantTracker.setAnchorPoseFromCameraOffset(0,0,-2);
-          camera.updateFrame(renderer);
-          renderer.render(scene, camera);
-        });
+          exercise.addEventListener('loadedmetadata', ()=>{
+            anchorGroup.remove(plane);
+            plane.geometry.dispose(); plane.material.dispose();
+            plane = makePlane();
+            plane.rotation.x = -Math.PI/2;
+            anchorGroup.add(plane);
+          }, { once:true });
 
-        const onFirstTap = () => {
-          placed = true;
-          exercise.muted = false;
-          exercise.currentTime = 0;
-          exercise.play().catch(()=>{});
-          removeEventListener('pointerdown', onFirstTap);
-        };
-        addEventListener('pointerdown', onFirstTap, { once:true, passive:true });
+          // Эхний touch → байрлуулж, дасгалын видеог дуугаар тоглуулна
+          let placed = false;
+          const onFirstTap = () => {
+            placed = true;
+            exercise.muted = false;
+            exercise.currentTime = 0;
+            exercise.play().catch(()=>{});
+            removeEventListener('pointerdown', onFirstTap);
+          };
+          addEventListener('pointerdown', onFirstTap, { once:true, passive:true });
+
+          // байрлуултал нь өмнө нь тогтмол -2м урд талд барина
+          const tick = () => { if (!placed) instantTracker.setAnchorPoseFromCameraOffset(0,0,-2); };
+          // render loop-д аль хэдийн дууддаг тул frame бүрд ажиллуулъя
+          (function hook(){ const orig = renderer.setAnimationLoop.bind(renderer);
+            renderer.setAnimationLoop((...args)=>{ tick(); camera.updateFrame(renderer); renderer.render(scene, camera); });
+            renderer.setAnimationLoop = orig; })();
+        }
       });
     })();
   </script>
