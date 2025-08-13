@@ -3,42 +3,39 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Auto AR Experience (WebXR)</title>
+  <title>WebAR — Fixed Placement (WebXR)</title>
 
   <style>
     :root { --z-ui:5; --z-menu:6; --z-debug:20; --z-countdown:25 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
     canvas.webgl{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
 
-    .btn{padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25);transition:transform 0.2s ease}
+    .btn{padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25);transition:transform .2s ease}
     .btn:hover{transform:scale(1.05)}
     .btn:active{transform:scale(0.95)}
     #btnUnmute{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
 
-    #menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-menu);background:rgba(0,0,0,0.8)}
-    .menu-inner{display:flex;flex-direction:column;gap:16px;padding:20px;border-radius:20px;background:rgba(255,255,255,0.1);backdrop-filter:blur(10px)}
+    #menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-menu);background:rgba(0,0,0,.8)}
+    .menu-inner{display:flex;flex-direction:column;gap:16px;padding:20px;border-radius:20px;background:rgba(255,255,255,.1);backdrop-filter:blur(10px)}
 
     #debug{position:fixed;left:10px;top:10px;z-index:var(--z-debug);color:#0f0;background:rgba(0,0,0,.7);
-           padding:8px 12px;border-radius:8px;font:12px/1.4 monospace;white-space:pre-wrap;max-width:90vw;
-           border:1px solid rgba(0,255,0,0.3)}
+           padding:8px 12px;border-radius:8px;font:12px/1.4 monospace;white-space:pre-wrap;max-width:90vw;border:1px solid rgba(0,255,0,.3)}
 
     #loadingScreen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:var(--z-ui);
                    background:#000;flex-direction:column;gap:20px}
-    .loading-spinner{width:50px;height:50px;border:4px solid rgba(255,255,255,0.3);border-top:4px solid #fff;
-                     border-radius:50%;animation:spin 1s linear infinite}
+    .loading-spinner{width:50px;height:50px;border:4px solid rgba(255,255,255,.3);border-top:4px solid #fff;border-radius:50%;animation:spin 1s linear infinite}
     @keyframes spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
 
     #permissionError{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-ui);
                      background:#000;flex-direction:column;gap:20px;text-align:center;padding:20px}
 
     #countdownOverlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-countdown);
-                      background:rgba(0,0,0,0.8);flex-direction:column;gap:20px}
-    .countdown-number{font-size:120px;color:#fff;font-weight:bold;text-shadow:0 0 20px rgba(255,255,255,0.5);
-                      animation:pulse 1s ease-in-out}
+                      background:rgba(0,0,0,.8);flex-direction:column;gap:20px}
+    .countdown-number{font-size:120px;color:#fff;font-weight:bold;text-shadow:0 0 20px rgba(255,255,255,.5);animation:pulse 1s ease-in-out}
     @keyframes pulse { 0%{transform:scale(1)} 50%{transform:scale(1.1)} 100%{transform:scale(1)} }
   </style>
 
-  <!-- THREE only (no Zappar) -->
+  <!-- THREE only -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js" defer></script>
 </head>
 <body>
@@ -81,7 +78,9 @@ const INTRO_WEBM_URL     = "https://batbaatar-anu.github.io/my-ar-host/output_al
 const INTRO_MP4_URL      = "";
 const EXERCISE_WEBM_URL  = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
 const EXERCISE_MP4_URL   = "";
-const AR_POSITION = { x: 0, y: 0, z: -1.5 }; // урьдчилсан ойролцоо байрлал (placement хийгдээгүй үед)
+
+// Шууд, тогтмол байрлал (-1.5m)
+const AR_POSITION = { x: 0, y: 0, z: -1.5 };
 
 const dbg = (m)=>{ console.log('DEBUG:', m); document.getElementById('debug').textContent='DEBUG: '+m; };
 
@@ -161,7 +160,7 @@ function adjustPlaneToVideo(video, plane){
   const displayW = displayH * (w / h);
   plane.geometry.dispose();
   plane.geometry = new THREE.PlaneGeometry(displayW, displayH, 32, 32);
-  dbg(`Optimized AR plane: ${displayW.toFixed(2)}x${displayH.toFixed(2)}`);
+  dbg(`Plane: ${displayW.toFixed(2)} x ${displayH.toFixed(2)} at z=${AR_POSITION.z}`);
 }
 
 async function playVideoWithAudio(videoEl){
@@ -177,18 +176,17 @@ async function playVideoWithAudio(videoEl){
     try{
       await videoEl.play();
       btnUnmute.style.display='inline-block';
-      dbg('Video playing muted - click unmute button');
+      dbg('Video playing muted - tap Unmute');
     }catch(e2){
-      dbg('Failed to play video: '+e2.message);
+      dbg('Play failed: '+e2.message);
     }
   }
 }
 
-/********** Three.js + WebXR **********/
-let renderer, scene, camera, plane, reticle;
+/********** Three.js + WebXR (no hit-test) **********/
+let renderer, scene, camera, plane;
 let introTexture, exerciseTexture, currentVideo;
-let xrSession, xrRefSpace, viewerSpace, hitTestSource;
-let placed = false;
+let xrSession, xrRefSpace;
 
 async function initThree(){
   renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, powerPreference:'high-performance' });
@@ -207,61 +205,37 @@ async function initThree(){
     camera.updateProjectionMatrix();
   });
 
+  // Видео-хавтгай — шууд харагдуулна
   plane = new THREE.Mesh(
     new THREE.PlaneGeometry(1,1,16,16),
     new THREE.MeshBasicMaterial({ transparent:true, side:THREE.DoubleSide, alphaTest:0.1 })
   );
-  plane.visible = false; // байрлуулаагүй үед
+  plane.visible = true;
   scene.add(plane);
-
-  // Reticle (цагираг)
-  const ring = new THREE.RingGeometry(0.06,0.07,32);
-  ring.rotateX(-Math.PI/2);
-  reticle = new THREE.Mesh(ring, new THREE.MeshBasicMaterial());
-  reticle.matrixAutoUpdate = false;
-  reticle.visible = false;
-  scene.add(reticle);
 }
 
 async function startXRSession(){
   if(!('xr' in navigator)) throw new Error('WebXR not supported in this browser');
 
   xrSession = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['hit-test','dom-overlay'],
+    // hit-test шаардахгүй, зөвхөн DOM overlay ашиглаж болно
+    requiredFeatures: ['dom-overlay'],
     domOverlay: { root: document.body }
   });
   dbg('XR session started');
 
   await renderer.xr.setSession(xrSession);
   xrRefSpace = await xrSession.requestReferenceSpace('local');
-  viewerSpace = await xrSession.requestReferenceSpace('viewer');
-  hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
 
-  // Товшилтоор объект байрлуулна
-  window.addEventListener('click', ()=>{
-    if(reticle.visible){
-      placed = true;
-      plane.visible = true;
-      plane.matrix.copy(reticle.matrix);
-      plane.matrix.decompose(plane.position, plane.quaternion, plane.scale);
-    }
-  });
-
+  // Render loop — camera-г renderer.xr удирдана
   renderer.setAnimationLoop((t, frame)=>{
-    if(!frame){ renderer.render(scene,camera); return; }
-    const pose = frame.getViewerPose(xrRefSpace);
-    if(!pose){ renderer.render(scene,camera); return; }
-
-    const results = frame.getHitTestResults(hitTestSource);
-    if(results.length > 0 && !placed){
-      const hit = results[0];
-      const hitPose = hit.getPose(xrRefSpace);
-      reticle.visible = true;
-      reticle.matrix.fromArray(hitPose.transform.matrix);
-    }else if(!placed){
-      reticle.visible = false;
+    // Объектоо камертай харьцуулан тогтмол -1.5м-т байрлуулна
+    // XR дотор camera.matrixWorld хэрэгтэй тул frame-ээс поз авсны дараа ажиллуулна
+    if(frame){
+      // Камерын чиглэл рүү AR_POSITION.z зайд
+      plane.position.set(0, 0, AR_POSITION.z);
+      plane.quaternion.identity(); // шулуун харуулъя (шаардвал бага зэрэг эргүүлж болно)
     }
-
     renderer.render(scene, camera);
   });
 }
@@ -269,7 +243,7 @@ async function startXRSession(){
 /********** App flow **********/
 async function startARExperience(){
   try{
-    dbg('Starting enhanced AR experience...');
+    dbg('Starting AR experience...');
 
     // Видео эх үүсвэрүүд
     setupVideoSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
@@ -289,22 +263,19 @@ async function startARExperience(){
 
     await startXRSession();
 
-    // Байршуулах хүртэл түр тогтоосон зайд харуулж болно (хүсвэл)
-    if(!placed){
-      plane.visible = true;
-      plane.position.set(AR_POSITION.x, AR_POSITION.y, AR_POSITION.z);
-    }
+    // Шууд -1.5м-т үзүүлнэ
+    plane.position.set(AR_POSITION.x, AR_POSITION.y, AR_POSITION.z);
 
     await playVideoWithAudio(vIntro);
-    dbg('High-quality intro video playing in AR');
+    dbg('Intro playing');
 
     vIntro.onended = ()=>{
       menu.style.display='flex';
-      dbg('Intro completed - showing menu');
+      dbg('Intro ended → menu');
     };
 
   }catch(error){
-    console.error('Failed to start AR experience:', error);
+    console.error('Failed to start:', error);
     dbg('Failed to start: ' + error.message);
     showPermissionError();
   }
@@ -314,9 +285,7 @@ async function startARExperience(){
 btnRetry.addEventListener('click', async ()=>{
   permissionError.style.display='none';
   loadingScreen.style.display='flex';
-  try{
-    await startARExperience();
-  }catch(e){}
+  try{ await startARExperience(); }catch(e){}
 });
 
 btnUnmute.addEventListener('click', async ()=>{
@@ -326,17 +295,13 @@ btnUnmute.addEventListener('click', async ()=>{
       await currentVideo.play();
       btnUnmute.style.display='none';
       dbg('Audio enabled');
-    }catch(e){
-      dbg('Failed to enable audio: '+e.message);
-    }
+    }catch(e){ dbg('Unmute failed: '+e.message); }
   }
 });
 
 document.getElementById('btnExercise').addEventListener('click', async ()=>{
   try{
     menu.style.display='none';
-    dbg('Starting exercise...');
-
     if(currentVideo) currentVideo.pause();
     currentVideo = vExercise;
     plane.material.map = exerciseTexture;
@@ -347,19 +312,15 @@ document.getElementById('btnExercise').addEventListener('click', async ()=>{
     await showCountdown(3);
     vExercise.currentTime = 0;
     await playVideoWithAudio(vExercise);
-    dbg('Exercise playing in high-quality AR');
-
-  }catch(error){
-    console.error('Failed to start exercise:', error);
-    dbg('Failed to start exercise: ' + error.message);
+    dbg('Exercise playing');
+  }catch(e){
+    console.error(e); dbg('Exercise failed: '+e.message);
   }
 });
 
 document.getElementById('btnRestart').addEventListener('click', async ()=>{
   try{
     menu.style.display='none';
-    dbg('Restarting intro...');
-
     if(currentVideo) currentVideo.pause();
     currentVideo = vIntro;
     plane.material.map = introTexture;
@@ -367,11 +328,9 @@ document.getElementById('btnRestart').addEventListener('click', async ()=>{
     await showCountdown(2);
     vIntro.currentTime = 0;
     await playVideoWithAudio(vIntro);
-    dbg('Intro restarted in high quality');
-
-  }catch(error){
-    console.error('Failed to restart intro:', error);
-    dbg('Failed to restart: ' + error.message);
+    dbg('Intro restarted');
+  }catch(e){
+    console.error(e); dbg('Restart failed: '+e.message);
   }
 });
 
@@ -381,7 +340,7 @@ window.addEventListener('load', async ()=>{
     await initThree();
     await startARExperience();
   }catch(e){
-    console.error('Failed to initialize:', e);
+    console.error('Init fail:', e);
     dbg('Initialization failed - check console');
     showPermissionError();
   }
