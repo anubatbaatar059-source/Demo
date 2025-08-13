@@ -10,12 +10,15 @@
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
     canvas.webgl{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
 
-    #startLayer{position:fixed;inset:0;display:grid;place-items:center;z-index:var(--z-ui);background:#000}
-    .btn{padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
+    /* ❗ Товчийг бүрмөсөн авсан — auto-start; зөвхөн fallback-overlay гарна */
+    #tapToStart{position:fixed;inset:0;display:none;place-items:center;z-index:var(--z-ui);background:#000;cursor:pointer}
+    #tapToStart .btn{padding:14px 18px;border:0;border-radius:14px;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
+
     #btnUnmute{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
 
     #menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-menu)}
     .menu-inner{display:flex;flex-direction:column;gap:12px}
+    .btn{padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
 
     #debug{position:fixed;left:10px;top:10px;z-index:var(--z-debug);color:#0f0;background:rgba(0,0,0,.5);
            padding:6px 8px;border-radius:6px;font:12px/1.2 monospace;white-space:pre-wrap;max-width:90vw}
@@ -39,14 +42,15 @@
 <body>
   <div id="debug">DEBUG: booting…</div>
 
-  <!-- UI -->
-  <div id="startLayer"><button id="btnStart" class="btn">▶ ЭХЛҮҮЛЭХ</button></div>
+  <!-- Fallback tap-overlay (хэрэгцээ гарвал л харагдана) -->
+  <div id="tapToStart"><button class="btn">▶ Камер нээх</button></div>
+
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
   <div id="menu"><div class="menu-inner">
     <button class="btn" id="btnExercise">Дасгал</button>
   </div></div>
 
-  <!-- Нууцлагдсан <video> элементүүд -->
+  <!-- Нууцлагдсан <video> -->
   <video id="vidIntro" playsinline preload="auto" style="display:none"></video>
   <video id="vidExercise" playsinline preload="auto" loop style="display:none"></video>
 
@@ -61,10 +65,9 @@
 
     const vIntro   = document.getElementById('vidIntro');
     const vEx      = document.getElementById('vidExercise');
-    const startLy  = document.getElementById('startLayer');
-    const btnStart = document.getElementById('btnStart');
     const btnUnmute= document.getElementById('btnUnmute');
     const menu     = document.getElementById('menu');
+    const tapLay   = document.getElementById('tapToStart');
 
     function setSources(el, webm, mp4=""){
       el.crossOrigin = "anonymous";
@@ -85,29 +88,17 @@
     const MIN_S = 0.3, MAX_S = 3;
     let spinSpeed = 0.9 * Math.PI/180; // preview auto-spin
 
-    const setErr = (e) => {
-      const msg = (e?.message || e || '').toString();
-      dbg('ERROR: ' + msg);
-      alert(
-        'Эхлүүлэхэд алдаа гарлаа:\n' + msg +
-        '\n\nШийдэл:\n• HTTPS дээр нээ (камера зөвшөөрөл зөвхөн HTTPS)\n' +
-        '• Browser → Site settings → Camera = Allow\n' +
-        '• Хуудсыг дахин ачаагаад ЭХЛҮҮЛЭХ дар'
-      );
-    };
-
     function applyScale(){
-      // доод ирмэг газарт тулна
       plane.scale.set(scaleFactor, scaleFactor, 1);
-      plane.position.y = (baseH * scaleFactor) / 2;
+      plane.position.y = (baseH * scaleFactor) / 2; // газарт тулгана
     }
 
     async function ensureCamera() {
       await window.__depsReady;
       const ok = await ZapparThree.permissionRequest();
-      if (!ok) { ZapparThree.permissionDeniedUI(); throw new Error('Camera permission denied'); }
+      if (!ok) throw new Error('Camera permission denied');
       camera?.start();
-      dbg('camera started / resumed');
+      dbg('camera started');
     }
 
     function videoTexture(el){
@@ -126,21 +117,20 @@
       applyScale();
     }
 
-    // Upright барих
+    // Upright / preview yaw-follow
     const _eul = new THREE.Euler(0,0,0,'YXZ');
-    function upright(){
-      _eul.setFromQuaternion(plane.quaternion,'YXZ');
-      _eul.x = 0; _eul.z = 0;
-      plane.quaternion.setFromEuler(_eul);
-    }
-    // Preview үед камерын yaw-г дагуулна
     function faceCameraYawOnly(){
       _eul.setFromQuaternion(camera.quaternion,'YXZ');
       _eul.x = 0; _eul.z = 0;
       plane.quaternion.setFromEuler(_eul);
     }
+    function upright(){
+      _eul.setFromQuaternion(plane.quaternion,'YXZ');
+      _eul.x = 0; _eul.z = 0;
+      plane.quaternion.setFromEuler(_eul);
+    }
 
-    // === Жестүүд ===
+    // Жестүүд (томруулах/эргүүлэх)
     let pinch = { active:false, startDist:0, startScale:1, startAngle:0, startYaw:0 };
     let drag  = { active:false, startX:0, startYaw:0 };
     function dist2(a,b){ const dx=a.clientX-b.clientX, dy=a.clientY-b.clientY; return Math.hypot(dx,dy); }
@@ -160,7 +150,6 @@
         drag = { active:true, startX:e.touches[0].clientX, startYaw:plane.rotation.y };
       }
     }, {passive:true});
-
     addEventListener('touchmove', e=>{
       if (!hasPlaced) return;
       if (pinch.active && e.touches.length===2){
@@ -175,18 +164,15 @@
         upright();
       }
     }, {passive:true});
-
     addEventListener('touchend', e=>{
       if (e.touches.length<2) pinch.active=false;
       if (e.touches.length===0) drag.active=false;
     }, {passive:true});
-
     addEventListener('wheel', e=>{
       if (!hasPlaced) return;
       scaleFactor = Math.min(MAX_S, Math.max(MIN_S, scaleFactor * (e.deltaY>0? 0.95 : 1.05)));
       applyScale();
     }, {passive:true});
-
     addEventListener('pointerdown', e=>{
       if (!hasPlaced) return;
       drag = { active:true, startX:e.clientX, startYaw:plane.rotation.y };
@@ -204,6 +190,7 @@
       if (!THREE || !ZapparThree) { dbg('libs not loaded'); return; }
       if (ZapparThree.browserIncompatible()) { ZapparThree.browserIncompatibleUI(); return; }
 
+      // Renderer
       renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false, powerPreference:'high-performance' });
       renderer.setSize(innerWidth, innerHeight);
       renderer.domElement.classList.add('webgl');
@@ -211,14 +198,17 @@
       addEventListener('resize', ()=>renderer.setSize(innerWidth, innerHeight));
       ZapparThree.glContextSet(renderer.getContext());
 
+      // Camera + Scene
       camera = new ZapparThree.Camera({ userFacing:false });
       scene  = new THREE.Scene();
       scene.background = camera.backgroundTexture;
 
+      // Tracker + Anchor
       tracker = new ZapparThree.InstantWorldTracker();
       anchor  = new ZapparThree.InstantWorldAnchorGroup(camera, tracker);
       scene.add(anchor);
 
+      // Plane
       plane = new THREE.Mesh(
         new THREE.PlaneGeometry(1, 1),
         new THREE.MeshBasicMaterial({ transparent:true, side: THREE.DoubleSide })
@@ -226,9 +216,10 @@
       plane.rotation.set(0,0,0);
       anchor.add(plane);
 
+      // Render loop
       renderer.setAnimationLoop(()=>{
         if (!hasPlaced) {
-          // preview: 2м урд, төвд, том + автоматаар эргэх
+          // preview: 2м урд, төвд, автоматаар эргэнэ
           tracker.setAnchorPoseFromCameraOffset(0, 0, -2);
           faceCameraYawOnly();
           plane.rotation.y += spinSpeed;
@@ -237,65 +228,69 @@
         renderer.render(scene, camera);
       });
 
+      // App visibility
       document.addEventListener('visibilitychange', ()=>{
         if (!document.hidden) { try { camera.start(); } catch{} }
         else { try { camera.pause(); } catch{} }
       });
 
-      dbg('bootstrap ready (press ▶ ЭХЛҮҮЛЭХ)');
+      dbg('bootstrap ready → auto-start');
+      autoStart(); // ← шууд эхлүүлэх оролдлого
     })();
 
-    // ▶ ЭХЛҮҮЛЭХ
-    btnStart.addEventListener('click', async ()=>{
+    // ===== Auto-start урсгал =====
+    async function autoStart(){
       try {
-        await window.__depsReady;
-        if (!window.ZapparThree) throw new Error('Deps not loaded');
+        // эхлэнгүүт permission-ээ асууна
         await ensureCamera();
 
+        // видео эх үүсвэрүүд
         setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
         setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
 
+        // textures
         texIntro = texIntro || videoTexture(vIntro);
         texEx    = texEx    || videoTexture(vEx);
 
+        // intro-г preview байдлаар
         currentVideo = vIntro;
         plane.material.map = texIntro;
         hasPlaced = false;
-        scaleFactor = 1.2;   // preview том
-        applyScale();
+        scaleFactor = 1.2; applyScale();
 
         if (vIntro.readyState >= 1) fitPlaneToVideo(vIntro);
         else vIntro.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vIntro), { once:true });
 
-        try {
-          vIntro.muted = false;
-          await vIntro.play();
-          btnUnmute.style.display = 'none';
-        } catch {
-          vIntro.muted = true;
-          vIntro.play().catch(()=>{});
-          btnUnmute.style.display = 'inline-block';
-        }
+        // autoplay (sound policy-оос болж чимээгүй эхлүүлээд, шаардвал Unmute-г үзүүлнэ)
+        try { vIntro.muted = false; await vIntro.play(); btnUnmute.style.display='none'; }
+        catch { vIntro.muted = true; vIntro.play().catch(()=>{}); btnUnmute.style.display='inline-block'; }
 
-        const placeIntro = ()=>{
-          hasPlaced = true;
-          spinSpeed = 0;   // автоматаар эргүүлэхийг зогсооно
-          removeEventListener('pointerdown', placeIntro);
+        // эхний tap → anchor-г тогтоож preview-spin-ийг зогсооно
+        const place = ()=>{
+          hasPlaced = true; spinSpeed = 0;
+          removeEventListener('pointerdown', place);
           dbg('intro placed');
         };
-        addEventListener('pointerdown', placeIntro, { once:true, passive:true });
+        addEventListener('pointerdown', place, { once:true, passive:true });
 
-        startLy.style.display='none';
-        dbg('intro playing (tap to place). When ended → menu');
+        vIntro.onended = ()=>{ menu.style.display='flex'; dbg('intro ended → menu'); };
+      } catch (e) {
+        // Хэрэв gesture шаардсан байвал fallback overlay гаргана
+        dbg('need user gesture (tap to start)');
+        tapLay.style.display = 'grid';
+      }
+    }
 
-        vIntro.onended = () => { menu.style.display = 'flex'; dbg('intro ended → menu'); };
-      } catch (e) { setErr(e); }
+    // Fallback: нэг удаагийн дэлгэц бүхэл tap → permission хүсээд эхлүүлнэ
+    tapLay.addEventListener('pointerdown', async ()=>{
+      tapLay.style.display='none';
+      try { await autoStart(); }
+      catch (e){ dbg('failed after tap: ' + (e?.message||e)); }
     });
 
-    // Дууг асаах
+    // Unmute
     btnUnmute.addEventListener('click', async ()=>{
-      try{ await currentVideo.play(); currentVideo.muted=false; btnUnmute.style.display='none'; }
-      catch(e){ setErr(e); }
+      try{ await currentVideo.play(); currentVideo.muted=false; btnUnmute.style.display='none'; } catch {}
     });
 
     // „Дасгал“
@@ -307,28 +302,26 @@
         currentVideo = vEx;
         plane.material.map = texEx;
 
-        // шинэ контент preview-ээр
         hasPlaced = false;
         spinSpeed = 0.9 * Math.PI/180;
-        scaleFactor = 1.2;
-        applyScale();
+        scaleFactor = 1.2; applyScale();
 
         if (vEx.readyState >= 1) fitPlaneToVideo(vEx);
         else vEx.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vEx), { once:true });
 
-        const onFirstTap = ()=>{
-          hasPlaced = true;
-          spinSpeed = 0;
-          vEx.currentTime = 0;
-          vEx.muted = false;
-          vEx.play().catch(()=>{});
-          removeEventListener('pointerdown', onFirstTap);
+        const place2 = ()=>{
+          hasPlaced = true; spinSpeed = 0;
+          vEx.currentTime = 0; vEx.muted = false; vEx.play().catch(()=>{});
+          removeEventListener('pointerdown', place2);
           dbg('exercise placed & playing');
         };
-        addEventListener('pointerdown', onFirstTap, { once:true, passive:true });
+        addEventListener('pointerdown', place2, { once:true, passive:true });
 
         dbg('exercise ready (tap to place & play)');
-      } catch (e) { setErr(e); }
+      } catch (e) {
+        // дахин gesture шаардвал overlay-г түр гаргана
+        tapLay.style.display = 'grid';
+      }
     });
   </script>
 </body>
