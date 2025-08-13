@@ -3,375 +3,447 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — World Placement (WebXR Hit Test)</title>
+  <title>WebAR — Intro → Menu → Exercise</title>
 
   <style>
-    :root { --z-ui:5; --z-menu:6; --z-debug:20; --z-help:25 }
+    :root { --z-ui:5; --z-menu:6; --z-debug:20 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
     canvas.webgl{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
 
-    .btn{padding:12px 16px;border:0;border-radius:12px;cursor:pointer;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25);transition:transform .2s ease}
-    .btn:hover{transform:scale(1.05)} .btn:active{transform:scale(.95)}
-    #btnUnmute{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
+    #startLayer{position:fixed;inset:0;display:grid;place-items:center;z-index:var(--z-ui);background:#000}
+    .btn{padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25);transition:transform 0.2s ease}
+    .btn:hover{transform:scale(1.05)}
+    .btn:active{transform:scale(0.95)}
+    #btnUnmute{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
 
-    #menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-menu);background:rgba(0,0,0,.8)}
-    .menu-inner{display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:16px;background:rgba(255,255,255,.08);backdrop-filter:blur(10px);width:min(90vw,420px)}
-    .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+    #menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-menu);background:rgba(0,0,0,0.8)}
+    .menu-inner{display:flex;flex-direction:column;gap:16px;padding:20px;border-radius:20px;background:rgba(255,255,255,0.1);backdrop-filter:blur(10px)}
 
     #debug{position:fixed;left:10px;top:10px;z-index:var(--z-debug);color:#0f0;background:rgba(0,0,0,.7);
-           padding:8px 12px;border-radius:8px;font:12px/1.35 monospace;white-space:pre-wrap;max-width:90vw;border:1px solid rgba(0,255,0,.3)}
-
-    #loadingScreen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:var(--z-ui);
-                   background:#000;flex-direction:column;gap:16px}
-    .spinner{width:46px;height:46px;border:4px solid rgba(255,255,255,.3);border-top:4px solid #fff;border-radius:50%;animation:spin 1s linear infinite}
-    @keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
-
-    #permissionError{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-ui);
-                     background:#000;flex-direction:column;gap:16px;text-align:center;padding:20px;color:#fff}
-
-    #help{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:var(--z-help);
-          background:rgba(0,0,0,.55);color:#fff;padding:8px 12px;border-radius:999px;font-size:14px;line-height:1.3;display:none}
-    #help b{font-weight:700}
+           padding:8px 12px;border-radius:8px;font:12px/1.4 monospace;white-space:pre-wrap;max-width:90vw;
+           border:1px solid rgba(0,255,0,0.3)}
+    
+    #instructions{position:fixed;bottom:20px;left:20px;right:20px;z-index:var(--z-ui);
+                  color:#fff;text-align:center;background:rgba(0,0,0,0.6);
+                  padding:12px;border-radius:12px;font-size:14px;display:none}
   </style>
 
-  <!-- THREE only -->
+  <!-- THREE + Zappar -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js" defer></script>
+  <script src="https://unpkg.com/@zappar/zappar-threejs@2.5.2/umd/zappar-threejs.js" defer></script>
+
+  <script>
+    // Clear any existing service workers
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+    }
+    
+    // Wait for dependencies to load
+    window.__depsReady = new Promise(res => addEventListener('load', () => {
+      res({ THREE: window.THREE, ZapparThree: window.ZapparThree });
+    }, { once:true }));
+  </script>
 </head>
 <body>
-  <div id="debug">DEBUG: Initializing…</div>
+  <div id="debug">DEBUG: Initializing...</div>
 
-  <div id="loadingScreen">
-    <div class="spinner"></div>
-    <h2 style="color:#fff;margin:0;">Starting AR…</h2>
-    <p style="color:#bbb;margin:0;">Move your phone to find a surface</p>
-  </div>
-
-  <div id="permissionError">
-    <h2>Camera Access Required</h2>
-    <p>This AR experience needs camera access.</p>
-    <button id="btnRetry" class="btn">Try Again</button>
-  </div>
-
-  <div id="help">🟡 Move phone to find a surface • <b>Tap</b> to place • <b>Pinch</b> to scale • <b>Rotate</b> with two fingers</div>
-
-  <button id="btnUnmute" class="btn">🔊 Enable Audio</button>
-
-  <div id="menu">
-    <div class="menu-inner">
-      <h3 style="color:#fff;margin:0 0 8px 0;text-align:center;">Select Experience</h3>
-      <div class="row">
-        <button class="btn" id="btnExercise">Start Exercise</button>
-        <button class="btn" id="btnRestart">Restart Intro</button>
-        <button class="btn" id="btnResetPlace" style="background:#ffe47a;">Re-place Object</button>
-      </div>
+  <!-- UI Elements -->
+  <div id="startLayer">
+    <div style="text-align:center;">
+      <h1 style="color:#fff;margin-bottom:30px;font-size:24px;">WebAR Experience</h1>
+      <button id="btnStart" class="btn">▶ START EXPERIENCE</button>
     </div>
   </div>
+  
+  <button id="btnUnmute" class="btn">🔊 Enable Audio</button>
+  
+  <div id="menu">
+    <div class="menu-inner">
+      <h2 style="color:#fff;margin:0 0 10px 0;text-align:center;">Select Experience</h2>
+      <button class="btn" id="btnExercise">Start Exercise</button>
+      <button class="btn" id="btnRestart">Restart Intro</button>
+    </div>
+  </div>
+
+  <div id="instructions">Tap anywhere to place the AR content in your space</div>
 
   <!-- Hidden video elements -->
   <video id="vidIntro" playsinline preload="auto" style="display:none" crossorigin="anonymous"></video>
   <video id="vidExercise" playsinline preload="auto" loop style="display:none" crossorigin="anonymous"></video>
 
-<script>
-/* ===== Config ===== */
-const INTRO_WEBM_URL     = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
-const INTRO_MP4_URL      = ""; // optional MP4 fallback if needed
-const EXERCISE_WEBM_URL  = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-const EXERCISE_MP4_URL   = ""; // optional MP4 fallback
+  <script>
+    /********** Configuration **********/
+    const INTRO_WEBM_URL     = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
+    const INTRO_MP4_URL      = "";
+    const EXERCISE_WEBM_URL  = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
+    const EXERCISE_MP4_URL   = "";
 
-/* ===== DOM ===== */
-const vIntro = document.getElementById('vidIntro');
-const vExercise = document.getElementById('vidExercise');
-const loadingScreen = document.getElementById('loadingScreen');
-const permissionError = document.getElementById('permissionError');
-const btnRetry = document.getElementById('btnRetry');
-const btnUnmute = document.getElementById('btnUnmute');
-const menu = document.getElementById('menu');
-const help = document.getElementById('help');
+    // Debug logger
+    const dbg = (message) => {
+      console.log('DEBUG:', message);
+      document.getElementById('debug').textContent = 'DEBUG: ' + message;
+    };
 
-const dbg = (m)=>{ console.log('[DEBUG]', m); document.getElementById('debug').textContent = 'DEBUG: ' + m; };
+    // DOM elements
+    const vIntro     = document.getElementById('vidIntro');
+    const vExercise  = document.getElementById('vidExercise');
+    const startLayer = document.getElementById('startLayer');
+    const btnStart   = document.getElementById('btnStart');
+    const btnUnmute  = document.getElementById('btnUnmute');
+    const menu       = document.getElementById('menu');
+    const instructions = document.getElementById('instructions');
 
-/* ===== Video helpers ===== */
-function setupVideoSources(video, webmUrl, mp4Url=""){
-  video.innerHTML = "";
-  if(webmUrl){
-    const s=document.createElement('source');
-    s.src=webmUrl; s.type='video/webm; codecs="vp8,opus"';
-    video.appendChild(s);
-  }
-  if(mp4Url){
-    const s=document.createElement('source');
-    s.src=mp4Url; s.type='video/mp4';
-    video.appendChild(s);
-  }
-  video.setAttribute('playsinline','true');
-  video.setAttribute('webkit-playsinline','true');
-  video.preload='auto';
-  video.load();
-}
-
-function createVideoTexture(video){
-  const tex = new THREE.VideoTexture(video);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.flipY = false;
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.generateMipmaps = false;
-  return tex;
-}
-
-async function playVideoWithAudio(video){
-  try{
-    if(video.readyState < 2){
-      await new Promise(res=>video.addEventListener('canplay', res, { once:true }));
+    // Set video sources with proper codec support
+    function setupVideoSources(videoElement, webmUrl, mp4Url = "") {
+      videoElement.innerHTML = "";
+      
+      if (webmUrl) {
+        const webmSource = document.createElement('source');
+        webmSource.src = webmUrl;
+        webmSource.type = 'video/webm; codecs="vp8,opus"';
+        videoElement.appendChild(webmSource);
+      }
+      
+      if (mp4Url) {
+        const mp4Source = document.createElement('source');
+        mp4Source.src = mp4Url;
+        mp4Source.type = 'video/mp4';
+        videoElement.appendChild(mp4Source);
+      }
+      
+      videoElement.load();
     }
-    video.muted=false;
-    await video.play();
-    btnUnmute.style.display='none';
-  }catch(e){
-    video.muted=true;
-    try{
-      await video.play();
-      btnUnmute.style.display='inline-block';
-      dbg('Autoplay blocked: showing Unmute button');
-    }catch(e2){
-      dbg('Video play failed: '+e2.message);
-    }
-  }
-}
 
-/* ===== Three.js + WebXR ===== */
-let renderer, scene, camera;
-let plane, reticle;
-let introTexture, exerciseTexture, currentVideo;
+    /********** AR Engine **********/
+    let THREE, ZapparThree, renderer, camera, scene, tracker, anchor, plane;
+    let hasPlacedContent = false;
+    let introTexture, exerciseTexture, currentVideo;
 
-let xrSession, xrRefSpace, viewerSpace, hitTestSource;
-let placed = false;
-
-// gesture state
-let pinchStartDist = 0, startScale = 1;
-let startAngle = 0, startRotationY = 0;
-
-function adjustPlaneToVideo(video){
-  const w = video.videoWidth || 1280;
-  const h = video.videoHeight || 720;
-  const displayH = 1.0; // meters
-  const displayW = displayH * (w / h);
-
-  plane.geometry.dispose();
-  plane.geometry = new THREE.PlaneGeometry(displayW, displayH, 32, 32);
-  // бага зэрэг доош тонгойлгож (шалан дээр наасан мэдрэмж)
-  plane.rotation.x = -0.15;
-  dbg(`Plane size: ${displayW.toFixed(2)} x ${displayH.toFixed(2)} m`);
-}
-
-async function initThree(){
-  renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, powerPreference:'high-performance' });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
-  renderer.domElement.classList.add('webgl');
-  document.body.appendChild(renderer.domElement);
-  renderer.xr.enabled = true;
-
-  scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.01, 100);
-
-  window.addEventListener('resize', ()=>{
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    camera.aspect = window.innerWidth/window.innerHeight;
-    camera.updateProjectionMatrix();
-  });
-
-  // Видеог үзүүлэх хавтгай
-  plane = new THREE.Mesh(
-    new THREE.PlaneGeometry(1,1,16,16),
-    new THREE.MeshBasicMaterial({ transparent:true, side:THREE.DoubleSide, alphaTest:0.1 })
-  );
-  plane.visible = false;
-  scene.add(plane);
-
-  // Reticle — газар олдсон үед харагдана
-  const ring = new THREE.RingGeometry(0.07,0.085,40);
-  ring.rotateX(-Math.PI/2);
-  reticle = new THREE.Mesh(ring, new THREE.MeshBasicMaterial({transparent:true, opacity:0.9}));
-  reticle.matrixAutoUpdate = false;
-  reticle.visible = false;
-  scene.add(reticle);
-}
-
-async function startXR(){
-  if(!('xr' in navigator)) throw new Error('WebXR not supported in this browser');
-
-  xrSession = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['hit-test','dom-overlay'],
-    domOverlay: { root: document.body }
-  });
-
-  await renderer.xr.setSession(xrSession);
-  xrRefSpace = await xrSession.requestReferenceSpace('local');
-  viewerSpace = await xrSession.requestReferenceSpace('viewer');
-  hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
-
-  help.style.display = 'block';
-
-  // tap → байрлуулах
-  window.addEventListener('pointerdown', onPlaceTap);
-
-  // gestures: pinch & rotate
-  window.addEventListener('pointerdown', onPointerDown);
-  window.addEventListener('pointermove', onPointerMove);
-  window.addEventListener('pointerup', onPointerUp);
-  window.addEventListener('pointercancel', onPointerUp);
-  window.addEventListener('lostpointercapture', onPointerUp);
-
-  const pointers = new Map();
-  function onPointerDown(e){ pointers.set(e.pointerId, e); if(pointers.size===2) beginGesture(); }
-  function onPointerMove(e){
-    if(pointers.has(e.pointerId)){ pointers.set(e.pointerId,e); if(pointers.size===2) updateGesture(); }
-  }
-  function onPointerUp(e){ pointers.delete(e.pointerId); if(pointers.size<2) endGesture(); }
-
-  function dist(a,b){ const dx=a.clientX-b.clientX, dy=a.clientY-b.clientY; return Math.hypot(dx,dy); }
-  function angle(a,b){ return Math.atan2(b.clientY-a.clientY, b.clientX-a.clientX); }
-
-  function beginGesture(){
-    if(!placed) return;
-    const [a,b] = [...pointers.values()];
-    pinchStartDist = dist(a,b);
-    startAngle = angle(a,b);
-    startScale = plane.scale.x;
-    startRotationY = plane.rotation.y;
-  }
-  function updateGesture(){
-    if(!placed) return;
-    const [a,b] = [...pointers.values()];
-    const d = dist(a,b);
-    const ang = angle(a,b);
-    const scale = THREE.MathUtils.clamp(startScale * (d / (pinchStartDist||d)), 0.5, 3.0);
-    plane.scale.setScalar(scale);
-    plane.rotation.y = startRotationY + (ang - startAngle);
-  }
-  function endGesture(){ /* noop */ }
-
-  // render loop
-  renderer.setAnimationLoop((t, frame)=>{
-    if(!frame){ renderer.render(scene,camera); return; }
-
-    const pose = frame.getViewerPose(xrRefSpace);
-    if(!pose){ renderer.render(scene,camera); return; }
-
-    // hit-test зөвхөн байрлуулаагүй үед гүйцэтгэнэ
-    if(!placed){
-      const hits = frame.getHitTestResults(hitTestSource);
-      if(hits.length>0){
-        const hit = hits[0];
-        const hitPose = hit.getPose(xrRefSpace);
-        reticle.visible = true;
-        reticle.matrix.fromArray(hitPose.transform.matrix);
-      }else{
-        reticle.visible = false;
+    // Request camera permissions
+    async function requestCameraAccess() {
+      try {
+        const permitted = await ZapparThree.permissionRequest();
+        if (!permitted) {
+          ZapparThree.permissionDeniedUI();
+          throw new Error('Camera permission denied');
+        }
+        camera?.start();
+        dbg('Camera access granted and started');
+        return true;
+      } catch (error) {
+        dbg('Camera permission failed: ' + error.message);
+        throw error;
       }
     }
 
-    renderer.render(scene,camera);
-  });
+    // Create video texture
+    function createVideoTexture(videoElement) {
+      const texture = new THREE.VideoTexture(videoElement);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.flipY = false;
+      return texture;
+    }
 
-  function onPlaceTap(e){
-    if(placed || !reticle.visible) return;
-    // reticle-ийн матрицыг plane-д хуулж тавина (газарт “наана”)
-    reticle.matrix.decompose(plane.position, plane.quaternion, plane.scale);
-    plane.visible = true;
-    placed = true;
-    help.style.display='none';
-    dbg('Placed on surface');
-  }
-}
+    // Fit plane to video aspect ratio and position it upright
+    function adjustPlaneToVideo(videoElement) {
+      const width = videoElement.videoWidth || 1280;
+      const height = videoElement.videoHeight || 720;
+      const displayHeight = 0.9; // 0.9 meters tall
+      const displayWidth = displayHeight * (width / height);
+      
+      // Update geometry
+      plane.geometry.dispose();
+      plane.geometry = new THREE.PlaneGeometry(displayWidth, displayHeight);
+      
+      // Position so bottom edge touches ground (y=0)
+      plane.position.set(0, displayHeight / 2, 0);
+      
+      dbg(`Video dimensions: ${width}x${height}, AR plane: ${displayWidth.toFixed(2)}x${displayHeight}`);
+    }
 
-/* ===== App flow ===== */
-let currentTexture;
+    // Make plane face camera (billboard effect) but keep it upright
+    const tempEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+    function makePlaneUpright() {
+      // Extract only the yaw rotation from camera
+      tempEuler.setFromQuaternion(camera.quaternion, 'YXZ');
+      tempEuler.x = 0; // Remove pitch (keep upright)
+      tempEuler.z = 0; // Remove roll (keep upright)
+      plane.quaternion.setFromEuler(tempEuler);
+    }
 
-async function startApp(){
-  try{
-    // Видеонууд бэлдэнэ
-    setupVideoSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
-    setupVideoSources(vExercise, EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
+    // Initialize AR system
+    async function initializeAR() {
+      try {
+        // Wait for dependencies
+        ({ THREE, ZapparThree } = await window.__depsReady);
+        
+        if (!THREE || !ZapparThree) {
+          throw new Error('Failed to load THREE.js or ZapparThree dependencies');
+        }
 
-    introTexture    = introTexture    || createVideoTexture(vIntro);
-    exerciseTexture = exerciseTexture || createVideoTexture(vExercise);
+        // Check browser compatibility
+        if (ZapparThree.browserIncompatible()) {
+          ZapparThree.browserIncompatibleUI();
+          return;
+        }
 
-    currentVideo = vIntro;
-    currentTexture = introTexture;
-    plane.material.map = currentTexture;
+        // Setup WebGL renderer
+        renderer = new THREE.WebGLRenderer({ 
+          antialias: true, 
+          alpha: false, 
+          powerPreference: 'high-performance' 
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.domElement.classList.add('webgl');
+        document.body.appendChild(renderer.domElement);
 
-    if (vIntro.readyState >= 1) adjustPlaneToVideo(vIntro);
-    else vIntro.addEventListener('loadedmetadata', ()=>adjustPlaneToVideo(vIntro), { once:true });
+        // Handle window resize
+        window.addEventListener('resize', () => {
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        });
 
-    loadingScreen.style.display='none';
+        // Initialize Zappar GL context
+        ZapparThree.glContextSet(renderer.getContext());
 
-    await startXR();         // WebXR + HitTest эхлүүлнэ
-    await playVideoWithAudio(vIntro); // Видео тоглуулж эхэлнэ
-  }catch(e){
-    console.error(e);
-    loadingScreen.style.display='none';
-    permissionError.style.display='flex';
-  }
-}
+        // Setup camera and scene
+        camera = new ZapparThree.Camera({ userFacing: false }); // Use back camera
+        scene = new THREE.Scene();
+        scene.background = camera.backgroundTexture;
 
-/* ===== UI ===== */
-btnRetry.addEventListener('click', ()=>{
-  permissionError.style.display='none';
-  loadingScreen.style.display='flex';
-  location.reload();
-});
+        // Setup instant world tracking
+        tracker = new ZapparThree.InstantWorldTracker();
+        anchor = new ZapparThree.InstantWorldAnchorGroup(camera, tracker);
+        scene.add(anchor);
 
-btnUnmute.addEventListener('click', async ()=>{
-  if(currentVideo){
-    try{ currentVideo.muted=false; await currentVideo.play(); btnUnmute.style.display='none'; }
-    catch(e){ dbg('Unmute failed: '+e.message); }
-  }
-});
+        // Create display plane
+        plane = new THREE.Mesh(
+          new THREE.PlaneGeometry(1, 1),
+          new THREE.MeshBasicMaterial({ 
+            transparent: true, 
+            side: THREE.DoubleSide 
+          })
+        );
+        anchor.add(plane);
 
-document.getElementById('btnExercise').addEventListener('click', async ()=>{
-  try{
-    menu.style.display='none';
-    if(currentVideo) currentVideo.pause();
-    currentVideo = vExercise;
-    plane.material.map = exerciseTexture;
+        // Start render loop
+        renderer.setAnimationLoop(() => {
+          if (!hasPlacedContent) {
+            // Before placement, position content 2 meters in front
+            tracker.setAnchorPoseFromCameraOffset(0, 0, -2);
+          }
+          
+          // Keep plane upright and facing camera
+          makePlaneUpright();
+          
+          // Update and render
+          camera.updateFrame(renderer);
+          renderer.render(scene, camera);
+        });
 
-    if (vExercise.readyState >= 1) adjustPlaneToVideo(vExercise);
-    else vExercise.addEventListener('loadedmetadata', ()=>adjustPlaneToVideo(vExercise), { once:true });
+        // Handle app visibility changes
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden) {
+            try { camera.start(); } catch (e) { console.warn('Failed to restart camera:', e); }
+          } else {
+            try { camera.pause(); } catch (e) { console.warn('Failed to pause camera:', e); }
+          }
+        });
 
-    vExercise.currentTime = 0;
-    await playVideoWithAudio(vExercise);
-    dbg('Exercise playing');
-  }catch(e){ dbg('Exercise failed: '+e.message); }
-});
+        dbg('AR system initialized successfully');
+        
+      } catch (error) {
+        console.error('AR initialization failed:', error);
+        dbg('AR initialization failed: ' + error.message);
+        throw error;
+      }
+    }
 
-document.getElementById('btnRestart').addEventListener('click', async ()=>{
-  try{
-    menu.style.display='none';
-    if(currentVideo) currentVideo.pause();
-    currentVideo = vIntro;
-    plane.material.map = introTexture;
-    vIntro.currentTime = 0;
-    await playVideoWithAudio(vIntro);
-    dbg('Intro restarted');
-  }catch(e){ dbg('Restart failed: '+e.message); }
-});
+    // Play video with audio handling
+    async function playVideoWithAudio(videoElement) {
+      try {
+        videoElement.muted = false;
+        await videoElement.play();
+        btnUnmute.style.display = 'none';
+        dbg('Video playing with audio');
+      } catch (error) {
+        // Fallback to muted playback
+        videoElement.muted = true;
+        try {
+          await videoElement.play();
+          btnUnmute.style.display = 'inline-block';
+          dbg('Video playing muted - click unmute button');
+        } catch (playError) {
+          dbg('Failed to play video: ' + playError.message);
+        }
+      }
+    }
 
-document.getElementById('btnResetPlace').addEventListener('click', ()=>{
-  placed = false;
-  help.style.display='block';
-  dbg('Placement reset — move phone to find surface, then tap to place');
-});
+    // Start AR experience
+    btnStart.addEventListener('click', async () => {
+      try {
+        dbg('Starting AR experience...');
+        
+        // Request camera access
+        await requestCameraAccess();
 
-// Интро дуусмагц меню гаргана
-vIntro.onended = ()=>{ menu.style.display='flex'; dbg('Intro ended → menu'); };
+        // Setup video sources
+        setupVideoSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
+        setupVideoSources(vExercise, EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
 
-// Boot
-window.addEventListener('load', async ()=>{
-  await initThree();
-  await startApp();
-});
-</script>
+        // Create textures
+        introTexture = introTexture || createVideoTexture(vIntro);
+        exerciseTexture = exerciseTexture || createVideoTexture(vExercise);
+
+        // Start with intro video
+        currentVideo = vIntro;
+        plane.material.map = introTexture;
+        hasPlacedContent = false;
+
+        // Setup video dimensions
+        if (vIntro.readyState >= 1) {
+          adjustPlaneToVideo(vIntro);
+        } else {
+          vIntro.addEventListener('loadedmetadata', () => adjustPlaneToVideo(vIntro), { once: true });
+        }
+
+        // Play intro video
+        await playVideoWithAudio(vIntro);
+
+        // Setup placement handler
+        const handlePlacement = () => {
+          hasPlacedContent = true;
+          instructions.style.display = 'none';
+          window.removeEventListener('pointerdown', handlePlacement);
+          dbg('AR content placed in space');
+        };
+        
+        window.addEventListener('pointerdown', handlePlacement, { once: true, passive: true });
+
+        // Show instructions and hide start screen
+        instructions.style.display = 'block';
+        startLayer.style.display = 'none';
+        
+        dbg('Intro video ready - tap to place in AR space');
+
+        // Handle intro video end
+        vIntro.onended = () => {
+          menu.style.display = 'flex';
+          instructions.style.display = 'none';
+          dbg('Intro completed - showing menu');
+        };
+
+      } catch (error) {
+        console.error('Failed to start AR experience:', error);
+        dbg('Failed to start: ' + error.message);
+        alert('Failed to start AR experience. Please ensure you have granted camera permissions and are using a supported browser.');
+      }
+    });
+
+    // Enable audio button
+    btnUnmute.addEventListener('click', async () => {
+      if (currentVideo) {
+        try {
+          currentVideo.muted = false;
+          await currentVideo.play();
+          btnUnmute.style.display = 'none';
+          dbg('Audio enabled');
+        } catch (error) {
+          dbg('Failed to enable audio: ' + error.message);
+        }
+      }
+    });
+
+    // Exercise button
+    document.getElementById('btnExercise').addEventListener('click', async () => {
+      try {
+        menu.style.display = 'none';
+        dbg('Starting exercise...');
+
+        // Ensure camera is active
+        try { await requestCameraAccess(); } catch (e) { console.warn('Camera already active or failed to restart'); }
+
+        // Stop current video
+        if (currentVideo) {
+          currentVideo.pause();
+        }
+
+        // Switch to exercise video
+        currentVideo = vExercise;
+        plane.material.map = exerciseTexture;
+        hasPlacedContent = false;
+
+        // Setup exercise video dimensions
+        if (vExercise.readyState >= 1) {
+          adjustPlaneToVideo(vExercise);
+        } else {
+          vExercise.addEventListener('loadedmetadata', () => adjustPlaneToVideo(vExercise), { once: true });
+        }
+
+        // Setup placement and play handler
+        const startExercise = async () => {
+          hasPlacedContent = true;
+          vExercise.currentTime = 0; // Restart from beginning
+          await playVideoWithAudio(vExercise);
+          instructions.style.display = 'none';
+          window.removeEventListener('pointerdown', startExercise);
+          dbg('Exercise placed and playing');
+        };
+
+        window.addEventListener('pointerdown', startExercise, { once: true, passive: true });
+        instructions.style.display = 'block';
+        
+        dbg('Exercise ready - tap to place and start');
+
+      } catch (error) {
+        console.error('Failed to start exercise:', error);
+        dbg('Failed to start exercise: ' + error.message);
+      }
+    });
+
+    // Restart intro button
+    document.getElementById('btnRestart').addEventListener('click', async () => {
+      try {
+        menu.style.display = 'none';
+        dbg('Restarting intro...');
+
+        // Stop current video
+        if (currentVideo) {
+          currentVideo.pause();
+        }
+
+        // Switch back to intro
+        currentVideo = vIntro;
+        plane.material.map = introTexture;
+        hasPlacedContent = false;
+
+        // Reset and play intro
+        vIntro.currentTime = 0;
+        await playVideoWithAudio(vIntro);
+
+        // Setup placement handler
+        const handlePlacement = () => {
+          hasPlacedContent = true;
+          instructions.style.display = 'none';
+          window.removeEventListener('pointerdown', handlePlacement);
+          dbg('Intro content placed');
+        };
+        
+        window.addEventListener('pointerdown', handlePlacement, { once: true, passive: true });
+        instructions.style.display = 'block';
+
+        dbg('Intro restarted - tap to place');
+
+      } catch (error) {
+        console.error('Failed to restart intro:', error);
+        dbg('Failed to restart: ' + error.message);
+      }
+    });
+
+    // Initialize AR system on page load
+    initializeAR().catch(error => {
+      console.error('Failed to initialize AR:', error);
+      dbg('Initialization failed - check console for details');
+    });
+  </script>
 </body>
 </html>
