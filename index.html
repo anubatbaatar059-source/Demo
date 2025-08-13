@@ -17,7 +17,7 @@
     #menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-menu)}
     .menu-inner{display:flex;flex-direction:column;gap:12px}
 
-    #debug{position:fixed;left:10px;top:10px;z-index:var(--z-debug);color:#0f0;background:rgba(0,0,0,.5);
+    #debug{position:fixed;left:10px;top:10px;z-index:var(--z-debug);color:#0f0;background:rgba(0,0,0,.6);
            padding:6px 8px;border-radius:6px;font:12px/1.2 monospace;white-space:pre-wrap;max-width:90vw}
   </style>
 
@@ -26,14 +26,27 @@
   <script src="https://unpkg.com/@zappar/zappar-threejs@2.5.2/umd/zappar-threejs.js" defer></script>
 
   <script>
-    // Service worker-ууд permission-т саад болохоос сэргийлж бүртгэлгүй болгоно
+    // Service worker-уудыг бүртгэлээс салгана (зарим үед кэшинээс болж эвдрэлдэж болно)
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
     }
-    // THREE/Zappar бэлэн болмогц resolve
-    window.__depsReady = new Promise(res => addEventListener('load', () => {
-      res({ THREE: window.THREE, ZapparThree: window.ZapparThree });
-    }, { once:true }));
+
+    // THREE/Zappar-г баттай бэлэн болтол 10с хүртэл хүлээдэг туслах
+    async function waitForDeps(timeoutMs=10000) {
+      const start = performance.now();
+      return new Promise((resolve, reject) => {
+        (function poll(){
+          const ok = !!window.THREE && !!window.ZapparThree;
+          const elapsed = performance.now() - start;
+          if (ok) return resolve({ THREE: window.THREE, ZapparThree: window.ZapparThree });
+          if (elapsed > timeoutMs) return reject(new Error('CDN deps not loaded (THREE/ZapparThree). Network/CDN blocked?'));
+          setTimeout(poll, 100);
+        })();
+      });
+    }
+
+    // Бүх DOM ачаалсны дараа ажиллуулна
+    window.__depsReady = new Promise(res => addEventListener('load', () => res(true), { once:true }));
   </script>
 </head>
 <body>
@@ -53,16 +66,12 @@
   <script>
     /********** Тохиргоо **********/
     const INTRO_WEBM_URL     = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
-    const INTRO_MP4_URL      = ""; // ← Хэрэв fallback хэрэгтэй бол MP4 URL тавь
+    const INTRO_MP4_URL      = ""; // fallback MP4 (iOS-д хэрэг болж магадгүй)
     const EXERCISE_WEBM_URL  = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-    const EXERCISE_MP4_URL   = ""; // ← Хэрэв fallback хэрэгтэй бол MP4 URL тавь
+    const EXERCISE_MP4_URL   = ""; // fallback MP4
 
     const $debug = document.getElementById('debug');
-    const dbg = (m)=>{
-      // хамгийн сүүлийн лог л харагдах байдлаар (хэрэв хүсвэл += хийж хуримтлуулж болно)
-      $debug.textContent = 'DEBUG: ' + m;
-      console.log('[DEBUG]', m);
-    };
+    const dbg = (m)=>{ $debug.textContent = 'DEBUG: ' + m; console.log('[DEBUG]', m); };
 
     const vIntro   = document.getElementById('vidIntro');
     const vEx      = document.getElementById('vidExercise');
@@ -71,15 +80,22 @@
     const btnUnmute= document.getElementById('btnUnmute');
     const menu     = document.getElementById('menu');
 
+    // HTTPS / iframe шалгалт
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+      dbg('⚠️ Secure origin биш (HTTPS/localhost биш) → camera permission гарахгүй!');
+    }
+    if (window.top !== window.self) {
+      dbg('⚠️ Iframe дотор ажиллаж байна → permission блоклогдож магадгүй!');
+    }
+
     const canPlay = {
       webm: !!document.createElement('video').canPlayType('video/webm; codecs="vp8,opus"'),
-      mp4 : !!document.createElement('video').canPlayType('video/mp4; codecs="avc1.64001E,mp4a.40.2"') // ерөнхий H.264+AAC
+      mp4 : !!document.createElement('video').canPlayType('video/mp4; codecs="avc1.64001E,mp4a.40.2"')
     };
 
     function setSources(el, webm, mp4=""){
       el.crossOrigin = "anonymous";
       el.innerHTML = "";
-      // Тоглож чадах форматаа эхэлж тавина
       if (canPlay.webm && webm){
         const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1);
       } else if (canPlay.mp4 && mp4){
@@ -93,17 +109,8 @@
     let hasPlaced = false;
     let texIntro, texEx, currentVideo;
 
-    // Камерын зөвшөөрөл
     async function ensureCamera() {
       try {
-        // Secure origin шалгалт
-        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-          dbg('⚠️ HTTPS/localhost биш тул camera permission блоклогдоно');
-        }
-        if (window.top !== window.self) {
-          dbg('⚠️ Iframe дотор ажиллаж байна → permission блоклогдож магадгүй');
-        }
-
         const statusBefore = await (ZapparThree.permissionStatus?.() ?? Promise.resolve('unknown'));
         dbg('permission status BEFORE: ' + statusBefore);
 
@@ -113,7 +120,7 @@
           ZapparThree.permissionDeniedUI();
           throw new Error('User denied / cannot grant camera permission');
         }
-        await camera.start(); // ← заавал await
+        await camera.start();
         dbg('camera started');
       } catch (e) {
         console.error(e);
@@ -122,36 +129,43 @@
       }
     }
 
-    // Видео → Texture
     function videoTexture(el){
       const t = new THREE.VideoTexture(el);
       t.colorSpace = THREE.SRGBColorSpace;
       return t;
     }
 
-    // Plane-аа видеоны харьцаагаар тааруулж, доод ирмэгийг газарт тулгах
     function fitPlaneToVideo(el){
       const w = el.videoWidth  || 1280;
       const h = el.videoHeight || 720;
-      const H = 0.9;                   // босоогоор 0.9м өндөр
+      const H = 0.9;                   // 0.9м өндөр
       const W = H * (w/h);
       plane.geometry.dispose();
       plane.geometry = new THREE.PlaneGeometry(W, H);
-      plane.position.set(0, H/2, 0);   // доод ирмэг нь y=0 дээр таарна
+      plane.position.set(0, H/2, 0);   // доод ирмэг нь y=0
     }
 
-    // Камерын зөвхөн yaw-г дагуулж босоогоор харуулах (billboard, хэвтэхгүй)
     const _eul = new THREE.Euler(0,0,0,'YXZ');
     function faceCameraYawOnly(){
       _eul.setFromQuaternion(camera.quaternion, 'YXZ');
-      _eul.x = 0;          // pitch = 0  → upright
-      _eul.z = 0;          // roll  = 0
+      _eul.x = 0;
+      _eul.z = 0;
       plane.quaternion.setFromEuler(_eul);
     }
 
     (async function bootstrap(){
-      ({ THREE, ZapparThree } = await window.__depsReady);
-      if (!THREE || !ZapparThree) { alert('THREE/ZapparThree ачаалагдсангүй'); throw new Error('Deps'); }
+      try {
+        await window.__depsReady; // бүрэн load
+        dbg('page loaded, waiting for THREE/Zappar…');
+        ({ THREE, ZapparThree } = await waitForDeps(10000));
+      } catch (e) {
+        // CDN блок, интернэт тасарсан гэх мэт
+        dbg('❌ Dependencies not loaded: ' + (e?.message ?? e) + '\nCheck network/CDN/unpkg.');
+        // Ядаж Start-ыг идэвхжүүлж, click дээр log харагдахаар болгоё
+        btnStart.disabled = false;
+        return;
+      }
+
       if (ZapparThree.browserIncompatible()) { ZapparThree.browserIncompatibleUI(); return; }
 
       // Renderer
@@ -172,7 +186,7 @@
       anchor  = new ZapparThree.InstantWorldAnchorGroup(camera, tracker);
       scene.add(anchor);
 
-      // Нийтэд ашиглах plane (анхнаасаа босоо, эргэлтгүй)
+      // Plane
       plane = new THREE.Mesh(
         new THREE.PlaneGeometry(1, 1),
         new THREE.MeshBasicMaterial({ transparent:true, side: THREE.DoubleSide })
@@ -182,18 +196,13 @@
 
       // Render loop
       renderer.setAnimationLoop(()=>{
-        if (!hasPlaced) {
-          // Байрлуулахаас өмнө 2м урд түр барина
-          tracker.setAnchorPoseFromCameraOffset(0, 0, -2);
-        }
-        // Plane-ийг upright + камерын зүгт харуулна
+        if (!hasPlaced) tracker.setAnchorPoseFromCameraOffset(0, 0, -2);
         faceCameraYawOnly();
-
         camera.updateFrame(renderer);
         renderer.render(scene, camera);
       });
 
-      // Foreground/Background үед камераа сэргээх
+      // Resume
       document.addEventListener('visibilitychange', async ()=>{
         try {
           if (!document.hidden) { await camera.start(); dbg('camera resumed'); }
@@ -201,11 +210,9 @@
         } catch(e) { dbg('resume failed: ' + (e?.message ?? e)); }
       });
 
-      // Эхний видео эх үүсвэрүүдийг тоглож чадах форматад тааруулж тохируулна
+      // Videos & textures
       setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
       setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
-
-      // Текстурүүдийг урьдчилан бэлдэнэ (хоцролт багасна)
       texIntro = videoTexture(vIntro);
       texEx    = videoTexture(vEx);
 
@@ -215,9 +222,17 @@
 
     // ▶ ЭХЛҮҮЛЭХ
     btnStart.addEventListener('click', async ()=>{
-      btnStart.disabled = true; // олон даруулж давхар урсгал үүсгэхээс хамгаална
+      dbg('Start clicked'); // ← CLICK орж ирж байгааг баталгаажуулна
+      btnStart.disabled = true;
       try {
+        if (!window.ZapparThree || !window.THREE) {
+          throw new Error('Deps missing at click time (THREE/ZapparThree)');
+        }
+
         await ensureCamera();
+
+        let THREE_ok = !!THREE, Z_ok = !!ZapparThree, R_ok = !!renderer, C_ok = !!camera;
+        dbg(`ready: THREE=${THREE_ok} Z=${Z_ok} R=${R_ok} C=${C_ok}`);
 
         currentVideo = vIntro;
         plane.material.map = texIntro;
@@ -231,7 +246,6 @@
           await vIntro.play();
           btnUnmute.style.display = 'none';
         } catch (e) {
-          // Autoplay block → muted autoplay + unmute товч
           dbg('autoplay blocked: ' + (e?.message ?? e));
           vIntro.muted = true;
           await vIntro.play().catch(()=>{});
@@ -251,20 +265,15 @@
         vIntro.onended = () => { menu.style.display = 'flex'; dbg('intro ended → menu'); };
       } catch (e) {
         console.error(e);
-        dbg('camera permission was denied or failed');
-        btnStart.disabled = false; // дахин оролдож болно
+        dbg('❌ Start flow failed: ' + (e?.message ?? e));
+        btnStart.disabled = false;
       }
     });
 
     // Дууг асаах
     btnUnmute.addEventListener('click', async ()=>{
-      try{
-        await currentVideo.play();
-        currentVideo.muted=false;
-        btnUnmute.style.display='none';
-      } catch(e){
-        dbg('unmute failed: ' + (e?.message ?? e));
-      }
+      try{ await (currentVideo?.play?.()); currentVideo.muted=false; btnUnmute.style.display='none'; }
+      catch(e){ dbg('unmute failed: ' + (e?.message ?? e)); }
     });
 
     // „Дасгал“
