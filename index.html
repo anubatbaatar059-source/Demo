@@ -3,76 +3,94 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Minimal Camera</title>
+  <title>Minimal — Browser Camera Only</title>
   <style>
-    html,body{margin:0;height:100%;overflow:hidden;background:#000}
-    canvas{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
-    #dbg{position:fixed;left:8px;top:8px;color:#0f0;font:12px monospace;
-         background:rgba(0,0,0,.4);padding:6px 8px;border-radius:6px}
-    #tap{position:fixed;inset:0;display:none;place-items:center;background:#000}
-    .btn{padding:12px 16px;border:0;border-radius:12px;font-weight:700;cursor:pointer}
+    html,body{margin:0;height:100%;background:#000;overflow:hidden}
+    /* Камерын фийдийг бүтэн дэлгэцээр */
+    #cam{
+      position:fixed; inset:0; width:100vw; height:100vh;
+      object-fit:cover; background:#000;
+      /* Хэрэв урд камер хэрэглэвэл доорхыг авч болно */
+      /* transform: scaleX(-1); */
+    }
+    #dbg{
+      position:fixed; left:8px; top:8px; z-index:10;
+      color:#0f0; font:12px/1 monospace; background:rgba(0,0,0,.45);
+      padding:6px 8px; border-radius:6px; white-space:pre;
+    }
+    #tap{
+      position:fixed; inset:0; display:none; place-items:center;
+      background:#000; z-index:9;
+    }
+    .btn{padding:12px 16px; border:0; border-radius:12px; font-weight:700; cursor:pointer}
   </style>
-  <script src="https://unpkg.com/three@0.152.2/build/three.min.js" defer></script>
-  <script src="https://unpkg.com/@zappar/zappar-threejs@2.5.2/umd/zappar-threejs.js" defer></script>
 </head>
 <body>
   <div id="dbg">boot…</div>
   <div id="tap"><button class="btn">▶ Камер нээх</button></div>
+  <video id="cam" playsinline autoplay muted></video>
 
 <script>
 const dbg = (m)=>document.getElementById('dbg').textContent = m;
 
-let THREE_, ZT, renderer, camera, scene;
+let stream = null;
+const camEl = document.getElementById('cam');
+const tapEl = document.getElementById('tap');
 
-async function start(){
-  // 1) сангуудыг шалгах
-  const t0 = Date.now();
-  while (!(window.THREE && window.ZapparThree)) {
-    if (Date.now()-t0 > 8000) { dbg('libs timeout'); return; }
-    await new Promise(r=>setTimeout(r,100));
-  }
-  THREE_ = window.THREE; ZT = window.ZapparThree;
-
-  // 2) Renderer + GL context бүртгэх (хар дэлгэцээс сэргийлнэ)
-  renderer = new THREE_.WebGLRenderer({antialias:true, alpha:false, powerPreference:'high-performance'});
-  renderer.setSize(innerWidth, innerHeight);
-  document.body.appendChild(renderer.domElement);
-  addEventListener('resize', ()=>renderer.setSize(innerWidth, innerHeight));
-  ZT.glContextSet(renderer.getContext());
-
-  // 3) Камер/сцен
-  camera = new ZT.Camera({ userFacing:false });
-  scene  = new THREE_.Scene();
-  scene.background = camera.backgroundTexture;
-
-  // 4) Permission — Zappar overlay ашиглахгүй, зөвхөн native prompt
-  const ok = await ZT.permissionRequest();
-  if (!ok) { dbg('permission denied'); return; }
-
-  try { camera.start(); } catch {}
+async function startCamera() {
+  dbg('requesting permission…');
+  // Зөвшөөрөл: арын камер илүүд үзнэ
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: 1280 }, height: { ideal: 720 }
+    },
+    audio: false
+  });
+  camEl.srcObject = stream;
+  await camEl.play().catch(()=>{}); // iOS дээр заримдаа шаардлагатай
   dbg('camera started');
-
-  // 5) Render loop
-  renderer.setAnimationLoop(()=>{
-    camera.updateFrame(renderer);
-    renderer.render(scene, camera);
-  });
-
-  // 6) App visibility
-  document.addEventListener('visibilitychange', ()=>{
-    try { document.hidden ? camera.pause() : camera.start(); } catch {}
-  });
 }
 
-// iOS-ын autoplay/gesture тохиолдолд fallback
-document.addEventListener('DOMContentLoaded', async ()=>{
-  try { await start(); }
-  catch (e){ document.getElementById('tap').style.display='grid'; dbg('tap to start'); }
+function stopCamera() {
+  if (!stream) return;
+  for (const t of stream.getTracks()) t.stop();
+  stream = null;
+  camEl.srcObject = null;
+  dbg('camera stopped');
+}
+
+// Эхлүүлэх оролдлого
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    dbg('getUserMedia not supported'); return;
+  }
+  try {
+    await startCamera();
+  } catch (e) {
+    // Хэрэв gesture шаардвал (iOS г.м.)
+    tapEl.style.display = 'grid';
+    dbg('tap to start');
+  }
 });
-document.getElementById('tap').addEventListener('click', async ()=>{
-  document.getElementById('tap').style.display='none';
-  try { await start(); } catch(e){ dbg('failed: '+(e?.message||e)); }
+
+// Gesture fallback
+tapEl.addEventListener('click', async () => {
+  tapEl.style.display = 'none';
+  try { await startCamera(); }
+  catch (e) { dbg('failed: ' + (e?.message || e)); }
 });
+
+// App visibility-д тулгуурласан start/pause
+document.addEventListener('visibilitychange', async () => {
+  try {
+    if (document.hidden) stopCamera();
+    else if (!stream) await startCamera();
+  } catch (e) { dbg('visibility err: ' + (e?.message || e)); }
+});
+
+// Rotation/resize үед видео пропорц хадгална (CSS object-fit нь хангалттай)
+addEventListener('resize', () => {/* no-op, CSS handles it */});
 </script>
 </body>
 </html>
