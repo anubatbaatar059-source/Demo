@@ -3,20 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Intro → Меню → Дасгал</title>
+  <title>WebAR — Intro → Меню → Дасгал (Final)</title>
   <style>
     :root { --z-ui:5; --z-menu:6; --z-debug:20 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
     canvas.webgl{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
 
-    /* Fallback overlay (gesture шаардагдвал л харагдана) */
     #tapToStart{position:fixed;inset:0;display:none;place-items:center;background:#000;z-index:var(--z-ui);cursor:pointer}
-    #tapToStart .btn{padding:14px 18px;border:0;border-radius:14px;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
+    .btn{padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
 
     #btnUnmute{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
     #menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-menu)}
     .menu-inner{display:flex;flex-direction:column;gap:12px}
-    .btn{padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
 
     #hint{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:var(--z-ui);
           color:#fff;background:rgba(0,0,0,.55);padding:10px 14px;border-radius:12px;display:none}
@@ -50,6 +48,7 @@
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
   <div id="menu"><div class="menu-inner">
     <button class="btn" id="btnExercise">Дасгал</button>
+    <button class="btn" id="btnRestart">Интро дахин</button>
   </div></div>
   <div id="hint">Байршуулахын тулд дэлгэцэнд нэг удаа хүр</div>
 
@@ -58,11 +57,12 @@
   <video id="vidExercise" playsinline preload="auto" loop style="display:none" crossorigin="anonymous"></video>
 
 <script>
-/********** Тохиргоо **********/
+/********** Тохиргоо (GitHub Pages /docs source бол энэ URL яг зөв) **********/
 const INTRO_WEBM_URL     = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
-const INTRO_MP4_URL      = "";
+const INTRO_MP4_URL      = ""; // iOS fallback (альфа байхгүй) — байвал энд тавина
 const EXERCISE_WEBM_URL  = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-const EXERCISE_MP4_URL   = "";
+const EXERCISE_MP4_URL   = ""; // iOS fallback — байвал энд тавина
+// Хэрэв Pages Source = root бол дээрхийг /docs/... болгож солино
 
 const dbg = (m)=>document.getElementById('debug').textContent = 'DEBUG: ' + m;
 
@@ -73,20 +73,39 @@ const menu     = document.getElementById('menu');
 const hint     = document.getElementById('hint');
 const tapLay   = document.getElementById('tapToStart');
 
+/* ==== Видео эх үүсвэрүүдийг зөв (CORS) тавих + алдаа логлох ==== */
 function setSources(el, webm, mp4=""){
+  el.crossOrigin = "anonymous";                       // CORS (Vercel → GitHub Pages)
+  el.setAttribute('playsinline', '');
   el.innerHTML = "";
-  if (webm){ const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1); }
-  if (mp4 ){ const s2=document.createElement('source'); s2.src=mp4 ; s2.type='video/mp4'; el.appendChild(s2); }
+
+  const canWebM = el.canPlayType?.('video/webm; codecs="vp8,opus"') || '';
+
+  if (webm && canWebM) {
+    const s1=document.createElement('source');
+    s1.src=webm; s1.type='video/webm; codecs="vp8,opus"';
+    el.appendChild(s1);
+  }
+  if (mp4) {
+    const s2=document.createElement('source');
+    s2.src=mp4; s2.type='video/mp4';
+    el.appendChild(s2);
+  }
+
+  el.onerror = ()=>{
+    const err = el.error;
+    dbg('VIDEO ERROR: '+(err?.message || err?.code || 'unknown')+' url='+(el.currentSrc||'-'));
+  };
   el.load();
 }
 
 /********** AR Engine **********/
 let THREE, ZapparThree, renderer, camera, scene, tracker, anchor, plane;
-let hasPlaced = false;               // anchor байрлуулсан эсэх
+let hasPlaced = false;
 let texIntro, texEx, currentVideo;
 
 let baseH = 0.9;                     // метр — босоо өндөр
-let scaleFactor = 1.2;               // preview-ээр арай том
+let scaleFactor = 1.2;               // preview арай том
 const MIN_S = 0.3, MAX_S = 3;
 let spinSpeed = 0.9*Math.PI/180;     // preview auto-spin
 
@@ -95,11 +114,12 @@ function applyScale(){ plane.scale.set(scaleFactor, scaleFactor, 1); plane.posit
 async function ensureCamera() {
   const ok = await ZapparThree.permissionRequest();
   if (!ok) { ZapparThree.permissionDeniedUI(); throw new Error('Camera permission denied'); }
-  try { camera.start(); } catch(e){/* already started */ }
+  try { camera.start(); } catch(e){}
   dbg('camera started');
 }
 
 function videoTexture(el){
+  el.crossOrigin = "anonymous";
   const t = new THREE.VideoTexture(el);
   t.colorSpace = THREE.SRGBColorSpace;
   t.flipY = false;
@@ -163,6 +183,7 @@ addEventListener('pointerdown', e=>{ if (!hasPlaced) return; drag={active:true,s
 addEventListener('pointermove', e=>{ if (!hasPlaced||!drag.active) return; const dx=e.clientX-drag.startX; plane.rotation.y=drag.startYaw+dx*0.004; upright(); });
 addEventListener('pointerup', ()=>{ drag.active=false; });
 
+// ==== Bootstrap ====
 (async function bootstrap(){
   ({ THREE, ZapparThree } = await window.__depsReady);
   if (!THREE || !ZapparThree) { dbg('libs not loaded'); return; }
@@ -208,24 +229,24 @@ addEventListener('pointerup', ()=>{ drag.active=false; });
   document.addEventListener('visibilitychange', ()=>{ if (!document.hidden){ try{camera.start();}catch{} } else { try{camera.pause();}catch{} } });
 
   dbg('bootstrap ready → auto-start');
-  autoStart(); // хуудас нээгдэнгүүт эхлүүлэх
+  autoStart(); // шууд эхлүүлэх
 })();
 
 // ===== Auto-start урсгал =====
 async function autoStart(){
   try {
-    // 1) Permission асууна
+    // Permission
     await ensureCamera();
 
-    // 2) Видео эх үүсвэрүүд
+    // Видео эх үүсвэрүүд
     setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
     setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
 
-    // 3) Textures
+    // Textures
     texIntro = texIntro || videoTexture(vIntro);
     texEx    = texEx    || videoTexture(vEx);
 
-    // 4) Интро preview-ээр, арай том
+    // Интро preview-ээр
     currentVideo = vIntro;
     plane.material.map = texIntro;
     hasPlaced = false;
@@ -234,31 +255,36 @@ async function autoStart(){
     if (vIntro.readyState >= 1) fitPlaneToVideo(vIntro);
     else vIntro.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vIntro), { once:true });
 
-    // 5) Авто тоглуулах (дуу policy-оос хамаарч unmute үзүүлж магадгүй)
+    // Авто тоглуулах (дуу policy-оос хамаарч unmute товч гарч магадгүй)
     try { vIntro.muted=false; await vIntro.play(); btnUnmute.style.display='none'; }
     catch { vIntro.muted=true; vIntro.play().catch(()=>{}); btnUnmute.style.display='inline-block'; }
 
-    // 6) Байршуулахын тулд эхний tap
+    // Байршуулахын тулд эхний tap
     const place = ()=>{ hasPlaced=true; spinSpeed=0; removeEventListener('pointerdown', place); hint.style.display='none'; dbg('intro placed'); };
     addEventListener('pointerdown', place, { once:true, passive:true });
     hint.style.display='block';
 
-    // 7) Интро дуусмагц меню
-    vIntro.onended = ()=>{ menu.style.display='flex'; dbg('intro ended → menu'); };
+    // Интро дуусмагц меню
+    vIntro.onended = ()=>{ menu.style.display='flex'; hint.style.display='none'; dbg('intro ended → menu'); };
   } catch (e) {
     // Gesture шаардсан бол fallback overlay-г харуулна
-    tapLay.style.display='grid';
+    tapLay.style.display = 'grid';
     dbg('need user gesture (tap to start)');
   }
 }
 
 // Fallback overlay: нэг удаагийн tap → эхлүүлнэ
-tapLay.addEventListener('pointerdown', async ()=>{ tapLay.style.display='none'; try{ await autoStart(); }catch(e){ dbg('after tap failed: '+(e?.message||e)); }});
+tapLay.addEventListener('pointerdown', async ()=>{
+  tapLay.style.display='none';
+  try{ await autoStart(); }catch(e){ dbg('after tap failed: '+(e?.message||e)); }
+});
 
 // Unmute
-btnUnmute.addEventListener('click', async ()=>{ try{ await currentVideo.play(); currentVideo.muted=false; btnUnmute.style.display='none'; } catch {} });
+btnUnmute.addEventListener('click', async ()=>{
+  try{ await currentVideo.play(); currentVideo.muted=false; btnUnmute.style.display='none'; } catch {}
+});
 
-// „Дасгал“ — интро дууссаны дараах меню
+// „Дасгал“ — интро дууссаны дараа
 document.getElementById('btnExercise').addEventListener('click', async ()=>{
   menu.style.display = 'none';
   try {
@@ -292,6 +318,22 @@ document.getElementById('btnExercise').addEventListener('click', async ()=>{
   } catch (e) {
     tapLay.style.display = 'grid';
   }
+});
+
+// Интро дахин
+document.getElementById('btnRestart').addEventListener('click', async ()=>{
+  menu.style.display='none';
+  if (currentVideo) currentVideo.pause();
+  currentVideo = vIntro;
+  plane.material.map = texIntro;
+  hasPlaced = false; spinSpeed = 0.9*Math.PI/180; scaleFactor=1.2; applyScale();
+  if (vIntro.readyState >= 1) fitPlaneToVideo(vIntro);
+  else vIntro.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vIntro), { once:true });
+  try { vIntro.muted=false; await vIntro.play(); btnUnmute.style.display='none'; }
+  catch { vIntro.muted=true; vIntro.play().catch(()=>{}); btnUnmute.style.display='inline-block'; }
+  const place=()=>{ hasPlaced=true; spinSpeed=0; removeEventListener('pointerdown', place); hint.style.display='none'; dbg('intro placed'); };
+  addEventListener('pointerdown', place, {once:true, passive:true});
+  hint.style.display='block';
 });
 </script>
 </body>
