@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Intro → Меню → Дасгал (Final)</title>
+  <title>WebAR — Intro → Меню → Дасгал (Final, no Zappar UI)</title>
   <style>
     :root { --z-ui:5; --z-menu:6; --z-debug:20 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
@@ -57,12 +57,11 @@
   <video id="vidExercise" playsinline preload="auto" loop style="display:none" crossorigin="anonymous"></video>
 
 <script>
-/********** Тохиргоо (GitHub Pages /docs source бол энэ URL яг зөв) **********/
+/********** Тохиргоо (замаа өөрийнхөө серверт тааруул) **********/
 const INTRO_WEBM_URL     = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
-const INTRO_MP4_URL      = ""; // iOS fallback (альфа байхгүй) — байвал энд тавина
+const INTRO_MP4_URL      = ""; // iOS fallback (альфа байхгүй бол энд MP4 хийж болно)
 const EXERCISE_WEBM_URL  = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-const EXERCISE_MP4_URL   = ""; // iOS fallback — байвал энд тавина
-// Хэрэв Pages Source = root бол дээрхийг /docs/... болгож солино
+const EXERCISE_MP4_URL   = "";
 
 const dbg = (m)=>document.getElementById('debug').textContent = 'DEBUG: ' + m;
 
@@ -75,7 +74,7 @@ const tapLay   = document.getElementById('tapToStart');
 
 /* ==== Видео эх үүсвэрүүдийг зөв (CORS) тавих + алдаа логлох ==== */
 function setSources(el, webm, mp4=""){
-  el.crossOrigin = "anonymous";                       // CORS (Vercel → GitHub Pages)
+  el.crossOrigin = "anonymous";
   el.setAttribute('playsinline', '');
   el.innerHTML = "";
 
@@ -112,10 +111,24 @@ let spinSpeed = 0.9*Math.PI/180;     // preview auto-spin
 function applyScale(){ plane.scale.set(scaleFactor, scaleFactor, 1); plane.position.y=(baseH*scaleFactor)/2; }
 
 async function ensureCamera() {
-  const ok = await ZapparThree.permissionRequest();
-  if (!ok) { ZapparThree.permissionDeniedUI(); throw new Error('Camera permission denied'); }
+  // 1) Браузер талаас шууд зөвшөөрөл авах (Zappar UI ашиглахгүй)
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('Camera not supported');
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal:'environment' }, width:{ideal:1280}, height:{ideal:720} },
+      audio: false
+    });
+    // зөвхөн зөвшөөрөл авах зорилго — stream-ээ өөрөө нээдэг тул унтраая
+    stream.getTracks().forEach(t=>t.stop());
+  } catch (e) {
+    throw new Error('User denied camera or not available');
+  }
+
+  // 2) ZapparThree.Camera-г асгана (зөвшөөрөл олгогдсон тул UI гарахгүй)
   try { camera.start(); } catch(e){}
-  dbg('camera started');
+  dbg('camera started (browser permission flow)');
 }
 
 function videoTexture(el){
@@ -195,6 +208,8 @@ addEventListener('pointerup', ()=>{ drag.active=false; });
   renderer.domElement.classList.add('webgl');
   document.body.appendChild(renderer.domElement);
   addEventListener('resize', ()=>renderer.setSize(innerWidth, innerHeight));
+
+  // !!! GL context-оо заавал бүртгэнэ — үгүй бол хар дэлгэц гарч болно
   ZapparThree.glContextSet(renderer.getContext());
 
   // Camera + Scene
@@ -226,16 +241,19 @@ addEventListener('pointerup', ()=>{ drag.active=false; });
   });
 
   // App visibility
-  document.addEventListener('visibilitychange', ()=>{ if (!document.hidden){ try{camera.start();}catch{} } else { try{camera.pause();}catch{} } });
+  document.addEventListener('visibilitychange', ()=>{
+    if (!document.hidden){ try{camera.start();}catch{} }
+    else { try{camera.pause();}catch{} }
+  });
 
   dbg('bootstrap ready → auto-start');
-  autoStart(); // шууд эхлүүлэх
+  autoStart(); // шууд эхлүүлэх оролдлого
 })();
 
 // ===== Auto-start урсгал =====
 async function autoStart(){
   try {
-    // Permission
+    // Permission (browser flow)
     await ensureCamera();
 
     // Видео эх үүсвэрүүд
@@ -267,9 +285,9 @@ async function autoStart(){
     // Интро дуусмагц меню
     vIntro.onended = ()=>{ menu.style.display='flex'; hint.style.display='none'; dbg('intro ended → menu'); };
   } catch (e) {
-    // Gesture шаардсан бол fallback overlay-г харуулна
+    // iOS шиг user-gesture шаардвал
     tapLay.style.display = 'grid';
-    dbg('need user gesture (tap to start)');
+    dbg('need user gesture (tap to start) — '+(e?.message||e));
   }
 }
 
