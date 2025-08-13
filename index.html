@@ -98,10 +98,12 @@
     function fitPlaneToVideo(el){
       const w = el.videoWidth  || 1280;
       const h = el.videoHeight || 720;
-      const H = 0.9;                 // метр — өндрийг 0.9м гэж тогтов
+      const H = 0.9;                 // метр — босоогоор 0.9м өндөр
       const W = H * (w/h);
       plane.geometry.dispose();
       plane.geometry = new THREE.PlaneGeometry(W, H);
+      // Доод ирмэгийг газарт тулгах (anchor y=0):
+      plane.position.y = H/2;
     }
 
     // Сангуудыг ачаалсны дараа renderer/camera/scene-ээ үүсгэнэ (эхлүүлэлт товч дарахад Permission асуух)
@@ -134,7 +136,7 @@
         new THREE.PlaneGeometry(1, 1),
         new THREE.MeshBasicMaterial({ transparent:true, side: THREE.DoubleSide })
       );
-      plane.rotation.x = -Math.PI/2; // шалан дээр хэвтүүлэв
+      plane.rotation.x = 0;           // ← босоогоор
       anchor.add(plane);
 
       // Render loop
@@ -142,6 +144,7 @@
         if (!hasPlaced) {
           // Байрлуулахаас өмнө 2м урд барина (камер дагаж хөдөлнө)
           tracker.setAnchorPoseFromCameraOffset(0,0,-2);
+          // Хэрэв суурийг арай доош санагдвал: tracker.setAnchorPoseFromCameraOffset(0,-0.45,-2);
         }
         camera.updateFrame(renderer);
         renderer.render(scene, camera);
@@ -150,7 +153,6 @@
       // Апп foreground/background солигдоход камераа сэргээх
       document.addEventListener('visibilitychange', ()=>{
         if (!document.hidden) {
-          // foreground болсон үед дахин start
           try { camera.start(); } catch {}
         } else {
           try { camera.pause(); } catch {}
