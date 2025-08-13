@@ -21,16 +21,14 @@
            padding:6px 8px;border-radius:6px;font:12px/1.2 monospace;white-space:pre-wrap;max-width:90vw}
   </style>
 
-  <!-- THREE + Zappar (smoke test-тэй ижил хувилбарууд) -->
+  <!-- THREE + Zappar -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js" defer></script>
   <script src="https://unpkg.com/@zappar/zappar-threejs@2.5.2/umd/zappar-threejs.js" defer></script>
 
   <script>
-    // Хуучин service worker салгах (кэштэй холбоотой будлиан гарвал):
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
     }
-    // Сангууд бэлэн болмогц:
     window.__depsReady = new Promise(res => addEventListener('load', () => {
       res({ THREE: window.THREE, ZapparThree: window.ZapparThree });
     }, { once:true }));
@@ -46,17 +44,16 @@
     <button class="btn" id="btnExercise">Дасгал</button>
   </div></div>
 
-  <!-- Нууцлагдсан <video> элементүүд (AR текстурт хэрэглэнэ) -->
+  <!-- Нууцлагдсан <video> элементүүд -->
   <video id="vidIntro" playsinline preload="auto" style="display:none"></video>
   <video id="vidExercise" playsinline preload="auto" loop style="display:none"></video>
 
   <script>
     /********** Тохиргоо **********/
-    // ⚠️ iOS Safari WebM+alpha (VP8/VP9) дэмжихгүй — доорх *_MP4_URL-д альфа биш MP4 fallback тавьж болно.
     const INTRO_WEBM_URL     = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
-    const INTRO_MP4_URL      = "";   // iOS fallback (альфа байхгүй, хөшигтэй хувилбар)
+    const INTRO_MP4_URL      = "";
     const EXERCISE_WEBM_URL  = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-    const EXERCISE_MP4_URL   = "";   // iOS fallback (альфа байхгүй)
+    const EXERCISE_MP4_URL   = "";
 
     const dbg = (m)=>document.getElementById('debug').textContent = 'DEBUG: ' + m;
 
@@ -77,40 +74,47 @@
 
     /********** AR Engine **********/
     let THREE, ZapparThree, renderer, camera, scene, tracker, anchor, plane;
-    let hasPlaced = false;     // одоогийн контентыг газар дээр байрлуулсан эсэх
+    let hasPlaced = false;
     let texIntro, texEx, currentVideo;
 
-    // Камераа эргэн сэргээх util (удаан туршилтаар тасалдахыг барина)
+    // Камерын зөвшөөрөл
     async function ensureCamera() {
-      const ok = await ZapparThree.permissionRequest(); // товч даралт дээр дуудагдана
+      const ok = await ZapparThree.permissionRequest();
       if (!ok) { ZapparThree.permissionDeniedUI(); throw new Error('Camera permission denied'); }
       camera?.start();
       dbg('camera started / resumed');
     }
 
-    // Видео → Three.js Texture
+    // Видео → Texture
     function videoTexture(el){
       const t = new THREE.VideoTexture(el);
       t.colorSpace = THREE.SRGBColorSpace;
       return t;
     }
-    // Plane-аа видеоны харьцаагаар тохируулах
+
+    // Plane-аа видеоны харьцаагаар тааруулж, доод ирмэгийг газарт тулгах
     function fitPlaneToVideo(el){
       const w = el.videoWidth  || 1280;
       const h = el.videoHeight || 720;
-      const H = 0.9;                 // метр — босоогоор 0.9м өндөр
+      const H = 0.9;                   // босоогоор 0.9м өндөр
       const W = H * (w/h);
       plane.geometry.dispose();
       plane.geometry = new THREE.PlaneGeometry(W, H);
-      // Доод ирмэгийг газарт тулгах (anchor y=0):
-      plane.position.y = H/2;
+      plane.position.set(0, H/2, 0);   // доод ирмэг нь y=0 дээр таарна
     }
 
-    // Сангуудыг ачаалсны дараа renderer/camera/scene-ээ үүсгэнэ (эхлүүлэлт товч дарахад Permission асуух)
+    // Камерын зөвхөн yaw-г дагуулж босоогоор харуулах (billboard, хэвтэхгүй)
+    const _eul = new THREE.Euler(0,0,0,'YXZ');
+    function faceCameraYawOnly(){
+      _eul.setFromQuaternion(camera.quaternion, 'YXZ');
+      _eul.x = 0;          // pitch = 0  → upright
+      _eul.z = 0;          // roll  = 0
+      plane.quaternion.setFromEuler(_eul);
+    }
+
     (async function bootstrap(){
       ({ THREE, ZapparThree } = await window.__depsReady);
       if (!THREE || !ZapparThree) { alert('THREE/ZapparThree ачаалагдсангүй'); throw new Error('Deps'); }
-
       if (ZapparThree.browserIncompatible()) { ZapparThree.browserIncompatibleUI(); return; }
 
       // Renderer
@@ -131,60 +135,54 @@
       anchor  = new ZapparThree.InstantWorldAnchorGroup(camera, tracker);
       scene.add(anchor);
 
-      // Нийтэд ашиглах plane
+      // Нийтэд ашиглах plane (анхнаасаа босоо, эргэлтгүй)
       plane = new THREE.Mesh(
         new THREE.PlaneGeometry(1, 1),
         new THREE.MeshBasicMaterial({ transparent:true, side: THREE.DoubleSide })
       );
-      plane.rotation.x = 0;           // ← босоогоор
+      plane.rotation.set(0,0,0);
       anchor.add(plane);
 
       // Render loop
       renderer.setAnimationLoop(()=>{
         if (!hasPlaced) {
-          // Байрлуулахаас өмнө 2м урд барина (камер дагаж хөдөлнө)
-          tracker.setAnchorPoseFromCameraOffset(0,0,-2);
-          // Хэрэв суурийг арай доош санагдвал: tracker.setAnchorPoseFromCameraOffset(0,-0.45,-2);
+          // Байрлуулахаас өмнө 2м урд түр барина
+          tracker.setAnchorPoseFromCameraOffset(0, 0, -2);
         }
+        // Plane-ийг upright + камерын зүгт харуулна
+        faceCameraYawOnly();
+
         camera.updateFrame(renderer);
         renderer.render(scene, camera);
       });
 
-      // Апп foreground/background солигдоход камераа сэргээх
+      // Foreground/Background үед камераа сэргээх
       document.addEventListener('visibilitychange', ()=>{
-        if (!document.hidden) {
-          try { camera.start(); } catch {}
-        } else {
-          try { camera.pause(); } catch {}
-        }
+        if (!document.hidden) { try { camera.start(); } catch{} }
+        else { try { camera.pause(); } catch{} }
       });
 
       dbg('bootstrap ready (press ▶ ЭХЛҮҮЛЭХ)');
     })();
 
-    // ▶ ЭХЛҮҮЛЭХ — permission (gesture дээр), интро-г бэлдээд “tap to place”
+    // ▶ ЭХЛҮҮЛЭХ
     btnStart.addEventListener('click', async ()=>{
       try {
-        await ensureCamera(); // permission + camera.start()
+        await ensureCamera();
 
-        // Эх үүсвэрүүд
         setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
         setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
 
-        // Texture-үүд
         texIntro = texIntro || videoTexture(vIntro);
         texEx    = texEx    || videoTexture(vEx);
 
-        // Интро-г идэвхжүүлнэ
         currentVideo = vIntro;
         plane.material.map = texIntro;
-        hasPlaced = false; // эхлээд -2м урд дагуулна
+        hasPlaced = false;
 
-        // metadata бэлэн болмогц plane-аа тааруулах
         if (vIntro.readyState >= 1) fitPlaneToVideo(vIntro);
         else vIntro.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vIntro), { once:true });
 
-        // Авто тоглуулаад болохгүй бол Unmute товч гаргана
         try {
           vIntro.muted = false;
           await vIntro.play();
@@ -195,9 +193,8 @@
           btnUnmute.style.display = 'inline-block';
         }
 
-        // Интро байрлуулахын тулд эхний “tap” хэрэгтэй
         const placeIntro = ()=>{
-          hasPlaced = true;  // энэ мөчөөс эхлээд anchor дэлхий дээр тогтоно
+          hasPlaced = true;
           removeEventListener('pointerdown', placeIntro);
           dbg('intro placed');
         };
@@ -206,7 +203,6 @@
         startLy.style.display='none';
         dbg('intro playing (tap to place). When ended → menu');
 
-        // интро дуусмагц меню
         vIntro.onended = () => { menu.style.display = 'flex'; dbg('intro ended → menu'); };
       } catch (e) {
         console.error(e);
@@ -214,13 +210,13 @@
       }
     });
 
-    // Дууг асаах (autoplay блоклогдсон үед)
+    // Дууг асаах
     btnUnmute.addEventListener('click', async ()=>{
       try{ await currentVideo.play(); currentVideo.muted=false; btnUnmute.style.display='none'; }
       catch{}
     });
 
-    // „Дасгал“ — permission-ээ ахин баталгаажуулж (хэрэв тасалдсан бол), дараа нь солин тоглуулна
+    // „Дасгал“
     document.getElementById('btnExercise').addEventListener('click', async ()=>{
       menu.style.display = 'none';
       try { await ensureCamera(); } catch {}
@@ -228,12 +224,11 @@
       if (currentVideo) currentVideo.pause();
       currentVideo = vEx;
       plane.material.map = texEx;
-      hasPlaced = false; // дахин тавьдаг болгож байна
+      hasPlaced = false;
 
       if (vEx.readyState >= 1) fitPlaneToVideo(vEx);
       else vEx.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vEx), { once:true });
 
-      // эхний touch → байрлуулж, дуугаар тоглуулах
       const onFirstTap = ()=>{
         hasPlaced = true;
         vEx.currentTime = 0;
