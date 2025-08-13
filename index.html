@@ -1,83 +1,254 @@
 <!doctype html>
-<html>
+<html lang="mn">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>WebAR World Tracking (Diag)</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>WebAR World Tracking — Robust + Diagnostics</title>
 <style>
- html,body{margin:0;height:100%;background:#000;overflow:hidden}
- #gate{position:fixed;inset:0;display:grid;place-items:center;background:#000;z-index:10}
- button{padding:14px 22px;border-radius:12px;border:0;font-size:16px}
+  :root { --z-ui:5; --z-menu:6; --z-debug:20 }
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,Arial,sans-serif}
+  canvas.webgl{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
+  #debug{position:fixed;left:10px;top:10px;z-index:var(--z-debug);color:#0f0;background:rgba(0,0,0,.5);
+         padding:6px 8px;border-radius:6px;font:12px/1.25 monospace;white-space:pre-wrap;max-width:92vw}
+  #tapToStart{position:fixed;inset:0;display:none;place-items:center;background:#000;z-index:var(--z-ui);cursor:pointer}
+  #tapToStart .btn{padding:14px 18px;border:0;border-radius:14px;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
+  #btnUnmute{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
+  .btn{padding:14px 18px;border:0;border-radius:14px;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
 </style>
-<script src="https://libs.zappar.com/zappar-threejs/2.0.0/zappar-threejs.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+<script>
+  // SW кэш будлиан арилгах
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+  }
+</script>
 </head>
 <body>
-<div id="gate"><button id="startBtn">Start AR</button></div>
+  <div id="debug">DEBUG: booting…</div>
+  <div id="tapToStart"><button class="btn">▶ Камер нээх</button></div>
+  <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
+
+  <!-- Нууцлагдсан видео (хэрэв AR дотор видео ашиглах бол) -->
+  <video id="vidIntro" playsinline preload="auto" style="display:none"></video>
+
 <script>
-const dbg = m => { console.log("[DEBUG]", m); };
+/* =================== UTIL & LOADER =================== */
+const dbg = (m)=>document.getElementById('debug').textContent = 'DEBUG: ' + m;
 
-dbg('env: https='+(location.protocol==='https:')+
-    ', media='+!!navigator.mediaDevices+
-    ', zappar='+!!window.ZapparThree);
+async function loadScriptSequence(urls, name){
+  for (const url of urls){
+    try{
+      await new Promise((res, rej)=>{
+        const s=document.createElement('script'); s.src=url; s.async=true;
+        s.onload=()=>res(); s.onerror=()=>rej(new Error('load fail: '+url));
+        document.head.appendChild(s);
+      });
+      dbg(name+' loaded: '+urls.indexOf(url)+'/'+(urls.length-1)+' ok');
+      return true;
+    }catch(e){
+      console.warn('[loader]', e.message);
+    }
+  }
+  throw new Error(name+' failed (all CDNs)');
+}
 
-async function requestCameraDiag(){
+async function loadLibs(){
+  // 2 CDN fallback (order matters)
+  await loadScriptSequence([
+    'https://unpkg.com/three@0.152.2/build/three.min.js',
+    'https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js'
+  ], 'THREE');
+  await loadScriptSequence([
+    'https://unpkg.com/@zappar/zappar-threejs@2.5.2/umd/zappar-threejs.js',
+    'https://libs.zappar.com/zappar-threejs/2.5.2/zappar-threejs.umd.js'
+  ], 'ZapparThree');
+}
+
+/* =================== CAMERA DIAG =================== */
+async function diagnoseCamera() {
+  const log = (...a)=>console.log('[CAMERA DIAG]', ...a);
   try {
-    const ok = await (window.ZapparThree?.permissionRequest?.() ?? Promise.resolve(false));
-    if(ok) return dbg('permission via Zappar OK');
-  } catch(e){ dbg('Zappar perm error: '+e.name); }
+    const st = await navigator.permissions?.query?.({name:'camera'});
+    log('perm.state =', st?.state);
+  } catch{}
   try {
-    const s = await navigator.mediaDevices.getUserMedia({video:true});
-    s.getTracks().forEach(t=>t.stop());
-    return dbg('permission via getUserMedia OK');
-  } catch(e){
-    dbg('getUserMedia error: '+e.name+' / '+e.message);
-    throw e;
+    const devs = await navigator.mediaDevices?.enumerateDevices?.();
+    const cams = (devs||[]).filter(d=>d.kind==='videoinput');
+    log('videoinputs =', cams.length, cams.map(c=>c.label));
+    if (!cams.length) {
+      alert('Камер төхөөрөмж илрээгүй. OS permission эсвэл өөр апп камерийг ашиглаж байж магадгүй.');
+      return false;
+    }
+  } catch(e){ log('enumerateDevices error', e.name, e.message); }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    log('getUserMedia OK');
+    // 1сек жижиг preview (CAMERA OK гэдгийг хэрэглэгч харна)
+    const v = document.createElement('video');
+    v.style.position='fixed'; v.style.right='8px'; v.style.bottom='8px';
+    v.style.width='120px'; v.style.zIndex='9999'; v.muted=true; v.playsInline=true;
+    v.srcObject = stream; document.body.appendChild(v);
+    await v.play();
+    setTimeout(()=>{ stream.getTracks().forEach(t=>t.stop()); v.remove(); }, 1000);
+    return true;
+  } catch(e) {
+    log('getUserMedia error →', e.name, e.message);
+    alert('Камер нээж чадсангүй: ' + e.name + '\n' + e.message +
+      '\n\nШийдэл:\n• Бусад камер хэрэглэж буй апп-уудаа хаа (QR/Messenger/Meet)\n' +
+      '• App Permission (Chrome/Safari) → Camera = Allow\n' +
+      '• Энэ домэйн (…vercel.app) Site settings → Camera = Allow\n' +
+      '• Android 12+: Quick Settings → “Camera access” асаалттай эсэх');
+    return false;
   }
 }
 
-document.getElementById('startBtn').addEventListener('click', async()=>{
-  document.getElementById('gate').style.display='none';
-  await requestCameraDiag();
+/* =================== AR APP =================== */
+let THREE, ZapparThree, renderer, camera, scene, tracker, anchor, plane;
+let hasPlaced=false;
+let baseH=0.9, scaleFactor=1.2, spinSpeed=0.9*Math.PI/180;
+const MIN_S=0.3, MAX_S=3;
 
-  const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true});
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
+function applyScale(){ plane.scale.set(scaleFactor, scaleFactor, 1); plane.position.y=(baseH*scaleFactor)/2; }
 
-  const camera = new ZapparThree.Camera();
-  const scene = new THREE.Scene();
-  scene.background = null;
+function faceCameraYawOnly(){
+  const _e = new THREE.Euler().setFromQuaternion(camera.quaternion,'YXZ');
+  _e.x=0; _e.z=0; plane.quaternion.setFromEuler(_e);
+}
+function upright(){
+  const _e = new THREE.Euler().setFromQuaternion(plane.quaternion,'YXZ');
+  _e.x=0; _e.z=0; plane.quaternion.setFromEuler(_e);
+}
 
+async function requestCameraStrict(){
+  if (location.protocol!=='https:' && location.hostname!=='localhost') throw new Error('Needs HTTPS');
+  if (!navigator.mediaDevices) throw new Error('mediaDevices not available');
+
+  // 1) Zappar permission
+  try {
+    const ok = await window.ZapparThree?.permissionRequest?.();
+    if (ok) return true;
+  } catch(e){ console.warn('zappar perm err', e); }
+
+  // 2) Fallback getUserMedia (зарим webview дээр gesture шаардана)
+  const s = await navigator.mediaDevices.getUserMedia({ video:true });
+  s.getTracks().forEach(t=>t.stop());
+  return true;
+}
+
+async function autoStart(){
+  // эхний онош (хурдан): зөвшөөрөл/камера OK эсэх
+  await diagnoseCamera();
+
+  // libs
+  await loadLibs();
+  THREE = window.THREE; ZapparThree = window.ZapparThree;
+  if (ZapparThree.browserIncompatible()) { ZapparThree.browserIncompatibleUI(); return; }
+
+  // permission (gesture-гүй бол шууд асна)
+  try { await requestCameraStrict(); }
+  catch(e){
+    dbg('permission needs user gesture → tap overlay');
+    document.getElementById('tapToStart').style.display='grid';
+    return;
+  }
+
+  // renderer/camera/scene
+  renderer = new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.domElement.classList.add('webgl'); document.body.appendChild(renderer.domElement);
+  addEventListener('resize', ()=>renderer.setSize(innerWidth, innerHeight));
   ZapparThree.glContextSet(renderer.getContext());
-  await ZapparThree.permissionRequest();
-  ZapparThree.permissionGranted().then(g=>{ if(!g) alert('Camera permission not granted'); });
 
-  const tracker = new ZapparThree.InstantWorldTracker();
-  const anchor = new ZapparThree.InstantWorldAnchorGroup(camera, tracker);
+  camera = new ZapparThree.Camera({ userFacing:false });
+  scene  = new THREE.Scene(); scene.background = camera.backgroundTexture;
+
+  tracker = new ZapparThree.InstantWorldTracker();
+  anchor  = new ZapparThree.InstantWorldAnchorGroup(camera, tracker);
   scene.add(anchor);
 
-  // Plane босоогоор
-  const H=0.9; const W=H*(16/9);
-  const plane = new THREE.Mesh(
-    new THREE.PlaneGeometry(W,H),
-    new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.8,side:THREE.DoubleSide})
+  plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.9*(16/9), 0.9), // W,H — 16:9 босоо
+    new THREE.MeshBasicMaterial({transparent:true, color:0xffffff, opacity:0.98, side:THREE.DoubleSide})
   );
-  plane.position.y = H/2;
+  plane.position.y = baseH/2;
   anchor.add(plane);
 
-  let hasPlaced=false;
-  window.addEventListener('click',()=>{
-    hasPlaced = true;
-    dbg('anchor placed');
+  // gestures (placement-ын дараа идэвхтэй)
+  let pinch={active:false,startDist:0,startScale:1,startAngle:0,startYaw:0};
+  let drag ={active:false,startX:0,startYaw:0};
+  const dist2=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
+  const angle2=(a,b)=>Math.atan2(b.clientY-a.clientY,b.clientX-a.clientX);
+
+  addEventListener('touchstart', e=>{
+    if (!hasPlaced) return;
+    if (e.touches.length===2){
+      pinch={active:true,startDist:dist2(e.touches[0],e.touches[1]),startScale:scaleFactor,startAngle:angle2(e.touches[0],e.touches[1]),startYaw:plane.rotation.y};
+    } else if (e.touches.length===1){
+      drag={active:true,startX:e.touches[0].clientX,startYaw:plane.rotation.y};
+    }
+  }, {passive:true});
+  addEventListener('touchmove', e=>{
+    if (!hasPlaced) return;
+    if (pinch.active && e.touches.length===2){
+      const k = dist2(e.touches[0], e.touches[1])/(pinch.startDist||1);
+      scaleFactor = Math.min(MAX_S, Math.max(MIN_S, pinch.startScale*k));
+      const ang = angle2(e.touches[0], e.touches[1]);
+      plane.rotation.y = pinch.startYaw + (ang - pinch.startAngle);
+      upright(); applyScale();
+    } else if (drag.active && e.touches.length===1){
+      const dx = e.touches[0].clientX - drag.startX;
+      plane.rotation.y = drag.startYaw + dx*0.004;
+      upright();
+    }
+  }, {passive:true});
+  addEventListener('touchend', e=>{ if (e.touches.length<2) pinch.active=false; if (e.touches.length===0) drag.active=false; }, {passive:true});
+  addEventListener('wheel', e=>{ if (!hasPlaced) return; scaleFactor=Math.min(MAX_S,Math.max(MIN_S,scaleFactor*(e.deltaY>0?0.95:1.05))); applyScale(); }, {passive:true});
+  addEventListener('pointerdown', e=>{ if (!hasPlaced) return; drag={active:true,startX:e.clientX,startYaw:plane.rotation.y}; });
+  addEventListener('pointermove', e=>{ if (!hasPlaced||!drag.active) return; const dx=e.clientX-drag.startX; plane.rotation.y=drag.startYaw+dx*0.004; upright(); });
+  addEventListener('pointerup', ()=>{ drag.active=false; });
+
+  // render loop
+  renderer.setAnimationLoop(()=>{
+    if (!hasPlaced){
+      tracker.setAnchorPoseFromCameraOffset(0,0,-2); // preview: 2м урд
+      faceCameraYawOnly();
+      plane.rotation.y += spinSpeed; // автоматаар эргэнэ
+    }
+    camera.updateFrame(renderer);
+    renderer.render(scene, camera);
   });
 
-  function animate(){
-    requestAnimationFrame(animate);
-    if(!hasPlaced) tracker.setAnchorPoseFromCameraOffset(0,0,-2);
-    renderer.render(scene,camera);
-  }
-  animate();
+  // foreground/background
+  document.addEventListener('visibilitychange', ()=>{ if (!document.hidden){ try{camera.start();}catch{} } else { try{camera.pause();}catch{} } });
+
+  // эхний tap → anchor-г тогтооно
+  const place=()=>{ hasPlaced=true; spinSpeed=0; removeEventListener('pointerdown', place); dbg('anchor placed'); };
+  addEventListener('pointerdown', place, {once:true, passive:true});
+
+  dbg('ready: preview running (tap to place)');
+}
+
+// Gesture fallback (зарим webview-д шаардлагатай)
+document.getElementById('tapToStart').addEventListener('pointerdown', async ()=>{
+  document.getElementById('tapToStart').style.display='none';
+  try { await autoStart(); } catch(e){ dbg('after tap failed: '+(e?.message||e)); }
 });
+
+/* =================== BOOT =================== */
+(async ()=>{
+  // орчны богино лог
+  dbg('env https='+ (location.protocol==='https:') +
+      ', media='+ !!navigator.mediaDevices +
+      ', ua='+ navigator.userAgent.split(')')[0]+')');
+
+  try {
+    await autoStart();
+  } catch(e){
+    // libs эсвэл permission gesture-ээс болсон байж болно
+    console.warn(e);
+    document.getElementById('tapToStart').style.display='grid';
+    dbg('waiting for user gesture (tap to start) — '+(e?.message||e));
+  }
+})();
 </script>
 </body>
 </html>
