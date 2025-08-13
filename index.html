@@ -68,6 +68,9 @@
 /* ===== ТАНЫ URL-ууд ===== */
 const INTRO_URL    = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
 const EXERCISE_URL = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
+// iOS fallback (HEVC + alpha) файлуудыг яг энэ нэршлээр байршуулсан гэж үзье:
+const INTRO_URL_IOS    = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.mp4"; // hvc1
+const EXERCISE_URL_IOS = "https://batbaatar-anu.github.io/my-ar-host/dasgal.mp4";            // hvc1
 
 /* ===== DOM ===== */
 const canvas = document.getElementById('zappar-canvas');
@@ -79,13 +82,21 @@ const hotspotLayer = document.getElementById('hotspots');
 const toast = document.getElementById('toast');
 const resetBtn = document.getElementById('reset');
 
-/* ===== Видеонд эх сурвалж оноох ===== */
-function setSources(videoEl, webmUrl){
+/* ===== Видеонд эх сурвалж оноох (iOS fallback-тай) ===== */
+function setSources(videoEl, webmUrl, iosMp4Url){
   videoEl.innerHTML = "";
+
+  // Android/Chrome (WebM + alpha)
   const s1 = document.createElement('source');
   s1.src = webmUrl;
-  s1.type = 'video/webm; codecs="vp8,opus"'; // Chrome/Android alpha OK. iOS-д HEVC+alpha хэрэгтэй
+  s1.type = 'video/webm; codecs="vp8,opus"';
   videoEl.appendChild(s1);
+
+  // iOS Safari (HEVC + alpha)
+  const s2 = document.createElement('source');
+  s2.src = iosMp4Url;
+  s2.type = 'video/mp4; codecs="hvc1"';
+  videoEl.appendChild(s2);
 }
 
 /* ===== Zappar + Three.js setup ===== */
@@ -94,13 +105,19 @@ let activeVideo = null; // intro эсвэл exercise
 let videoTexIntro, videoTexExercise;
 
 async function initZappar(){
+  // Browser capability шалгах (хэрэв боломгүй бол UI-г нь үзүүлээд зогсооно)
+  if (ZapparThree.browserIncompatible()) {
+    ZapparThree.browserIncompatibleUI();
+    throw new Error('Browser incompatible');
+  }
+
   // Camera permission UI
   const granted = await ZapparThree.permissionRequestUI();
-  if (!granted) { ZapparThree.permissionDeniedUI(); return; }
+  if (!granted) { ZapparThree.permissionDeniedUI(); throw new Error('Permission denied'); }
 
   renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight);
 
   scene = new THREE.Scene();
   camera = new ZapparThree.Camera();
@@ -110,20 +127,21 @@ async function initZappar(){
   // Камер feed-ийг renderer-т холбох
   ZapparThree.glContextSet(renderer.getContext());
 
+  // !!! ЧУХАЛ: Камерыг эхлүүлэх
+  camera.start(); // арын камер
+
   // Instant World Tracker (дэлхий дээр тавих)
   instantTracker = new ZapparThree.InstantWorldTracker();
   anchor = new ZapparThree.InstantWorldAnchorGroup(camera, instantTracker);
   scene.add(anchor);
 
   // 3D plane — дээр нь видео текстур наана
-  const planeGeo = new THREE.PlaneGeometry(1, 1); // aspect-ийг дараа resize-д тааруулна
-  // Видео texture-үүд
+  const planeGeo = new THREE.PlaneGeometry(1, 1);
+
   videoTexIntro = new THREE.VideoTexture(intro);
-  videoTexIntro.needsUpdate = true;
   videoTexIntro.colorSpace = THREE.SRGBColorSpace;
 
   videoTexExercise = new THREE.VideoTexture(exercise);
-  videoTexExercise.needsUpdate = true;
   videoTexExercise.colorSpace = THREE.SRGBColorSpace;
 
   planeMat = new THREE.MeshBasicMaterial({
@@ -133,8 +151,8 @@ async function initZappar(){
   plane.scale.set(1.2, 1.2, 1); // анхны хэмжээ
   anchor.add(plane);
 
-  // Placement helper: эхний хэдэн секунд дэлгэцийн төвд lock
-  instantTracker.setAnchorPoseFromCameraOffset(0, 0, -2); // 2m урд талд
+  // Placement helper: 2м урд талд
+  instantTracker.setAnchorPoseFromCameraOffset(0, 0, -2);
 
   window.addEventListener('resize', onResize);
   onResize();
@@ -146,8 +164,9 @@ async function initZappar(){
 }
 
 function onResize(){
-  const w = window.innerWidth, h = window.innerHeight;
-  renderer.setSize(w, h);
+  if (renderer && camera) {
+    camera.resizeRendererToDisplaySize(renderer); // Zappar-ийн зөв хэмжээс тааруулагч
+  }
 }
 
 /* ===== Drag + Pinch-Zoom → 3D-plane-д хэрэгжүүлэх ===== */
@@ -155,7 +174,6 @@ let scale2d = 1, startScale = 1, tx = 0, ty = 0, sx = 0, sy = 0, startDist = 0;
 const dist = (a,b)=>Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
 
 function applyPlaneTransform(){
-  // дэлгэцийн пиксел оффсетийг дэлхийтэй ойролцоогоор холбож жижиг коэффициент хэрэглэе
   const k = 0.002; // мэдрэмж
   plane.position.set(tx*k, -ty*k, 0);
   plane.scale.set(1.2*scale2d, 1.2*scale2d, 1);
@@ -228,8 +246,8 @@ function onIntroTime(){ updateHotspots(intro.currentTime); }
 
 /* ===== Урсгал ===== */
 async function boot(){
-  setSources(intro, INTRO_URL);
-  setSources(exercise, EXERCISE_URL);
+  setSources(intro,    INTRO_URL,    INTRO_URL_IOS);
+  setSources(exercise, EXERCISE_URL, EXERCISE_URL_IOS);
 
   await initZappar(); // Камер + 3D сцена
 
