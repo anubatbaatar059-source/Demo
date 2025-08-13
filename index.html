@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Intro → Меню → Дасгал (Animated)</title>
+  <title>WebAR — Intro → Меню → Дасгал (Intro tags + Animated Menu)</title>
   <style>
     :root { --z-ui:5; --z-menu:6; --z-debug:20 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
@@ -21,6 +21,22 @@
 
     /* Tap fallback */
     #tapToStart{position:fixed;inset:0;display:none;place-items:center;background:#000;z-index:var(--z-ui)}
+
+    /* ===== Intro overlay tags (NOT clickable) ===== */
+    #overlayTags{
+      position:fixed; inset:0; z-index:var(--z-ui); pointer-events:none; /* интрод дарж болохгүй */
+    }
+    .tag{
+      position:absolute; transform:translate(-50%,-50%);
+      padding:10px 14px; border-radius:12px; color:#fff;
+      background:linear-gradient(180deg, rgba(0,0,0,.65), rgba(0,0,0,.45));
+      border:1px solid rgba(255,255,255,.25); box-shadow:0 10px 30px rgba(0,0,0,.35);
+      font-weight:800; letter-spacing:.2px; opacity:0;
+      transition:opacity .25s ease, left .35s ease, top .35s ease, transform .35s ease;
+      white-space:nowrap; backdrop-filter:blur(4px);
+    }
+    .tag.show{ opacity:1; }
+    .tag.small{ font-size:12px; padding:8px 12px; font-weight:700 }
 
     /* ==== Animated Menu ==== */
     #menu{
@@ -72,6 +88,13 @@
   <div id="tapToStart"><button class="btn">▶ Камер нээх</button></div>
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
 
+  <!-- Intro overlay tags -->
+  <div id="overlayTags">
+    <div id="tagExercise"  class="tag">ДАСГАЛ</div>
+    <div id="tagGrowth"    class="tag small">ХУВЬ ХҮНИЙ ХӨГЖИЛ</div>
+    <div id="tagKnowledge" class="tag">МЭДЛЭГ</div>
+  </div>
+
   <!-- Animated Menu -->
   <div id="menu">
     <div class="menu-panel">
@@ -82,7 +105,7 @@
           <div class="icon">🏃</div>
           <div>
             <div class="ttl">Дасгал</div>
-            <div style="opacity:.8;font-size:12px">Шууд байршуулж тоглуулахаар сайжруулсан</div>
+            <div style="opacity:.8;font-size:12px">Шууд байршуулж тоглуулах</div>
           </div>
         </div>
         <div class="card" id="mGrowth">
@@ -122,6 +145,24 @@ const EXERCISE_MP4_URL   = "";
 /* Хэрэв 90°/180°-аар эргэж харагдвал энд тохируул: 0, Math.PI/2, Math.PI */
 const VIDEO_ROT_Z = 0;
 
+/* 🎬 Интро дээрх шошгоны цагийн мөр — u,v нь [-0.5..0.5] муж дахь харьцангуй байрлал, t секунд */
+const TAG_TIMELINE = [
+  // ДАСГАЛ
+  { id:'ex', t:[1.0, 3.2],  u:-0.35, v: 0.32, show:true },
+  { id:'ex', t:[3.2, 5.2],  u:-0.10, v: 0.40, show:true },
+  { id:'ex', t:[5.2, 6.0],  u:-0.10, v: 0.40, show:false },
+
+  // Хувь хүний хөгжил
+  { id:'gr', t:[6.5, 8.2],  u: 0.33, v: 0.32, show:true },
+  { id:'gr', t:[8.2,10.0],  u: 0.10, v: 0.05, show:true },
+  { id:'gr', t:[10.0,10.6], u: 0.10, v: 0.05, show:false },
+
+  // Мэдлэг
+  { id:'kn', t:[10.8,12.5], u: 0.00, v:-0.30, show:true },
+  { id:'kn', t:[12.5,14.0], u: 0.28, v:-0.28, show:true },
+  { id:'kn', t:[14.0,14.6], u: 0.28, v:-0.28, show:false },
+];
+
 const dbg=(m)=>document.getElementById('debug').textContent='DEBUG: '+m;
 const vIntro = document.getElementById('vidIntro');
 const vEx    = document.getElementById('vidExercise');
@@ -129,6 +170,12 @@ const btnUnmute=document.getElementById('btnUnmute');
 const hint   = document.getElementById('hint');
 const tapLay = document.getElementById('tapToStart');
 const menu   = document.getElementById('menu');
+
+const tagEls = {
+  ex: document.getElementById('tagExercise'),
+  gr: document.getElementById('tagGrowth'),
+  kn: document.getElementById('tagKnowledge'),
+};
 
 function setSources(el, webm, mp4=""){
   el.crossOrigin="anonymous"; el.setAttribute('playsinline',''); el.innerHTML="";
@@ -182,16 +229,76 @@ function hookGestures(){
   addEventListener('pointerup', ()=>{ drag.active=false; });
 }
 
+/* --- 3D → 2D проекц (плэйн дотор байрлуулах) --- */
+function worldToScreen(v){
+  if (!renderer || !camera) return {x:-9999, y:-9999};
+  const rect = renderer.domElement.getBoundingClientRect();
+  const p = v.clone().project(camera);
+  const x = (p.x * 0.5 + 0.5) * rect.width  + rect.left;
+  const y = (-p.y* 0.5 + 0.5) * rect.height + rect.top;
+  return {x,y};
+}
+function localOnPlane(u,v){ // u,v in [-0.5..0.5]
+  if (!plane || !plane.geometry || !plane.geometry.parameters) return new THREE.Vector3(0,0,0);
+  const w = plane.geometry.parameters.width;
+  const h = plane.geometry.parameters.height;
+  const pt = new THREE.Vector3(u*w*0.5, v*h*0.5, 0);
+  return plane.localToWorld(pt);
+}
+
+/* Интро шошгоны байрлал шинэчлэх */
+let showTags = false;
+function updateIntroTags(){
+  if (!showTags) return;
+  const t = vIntro.currentTime || 0;
+
+  // t-ээс хамаарсан сегментийг тухайн scope-д тодорхойлно
+  const segOf = (id) => {
+    const arr = TAG_TIMELINE.filter(s => s.id === id && t >= s.t[0] && t < s.t[1]);
+    return arr.length ? arr[arr.length - 1] : null;
+  };
+
+  const segEx = segOf('ex');
+  const segGr = segOf('gr');
+  const segKn = segOf('kn');
+
+  // ДАСГАЛ
+  if (segEx){
+    const w = worldToScreen(localOnPlane(segEx.u, segEx.v));
+    tagEls.ex.style.left = w.x+'px'; tagEls.ex.style.top = w.y+'px';
+    tagEls.ex.classList.toggle('show', !!segEx.show);
+  } else tagEls.ex.classList.remove('show');
+
+  // Хувь хүний хөгжил
+  if (segGr){
+    const w = worldToScreen(localOnPlane(segGr.u, segGr.v));
+    tagEls.gr.style.left = w.x+'px'; tagEls.gr.style.top = w.y+'px';
+    tagEls.gr.classList.toggle('show', !!segGr.show);
+  } else tagEls.gr.classList.remove('show');
+
+  // Мэдлэг
+  if (segKn){
+    const w = worldToScreen(localOnPlane(segKn.u, segKn.v));
+    tagEls.kn.style.left = w.x+'px'; tagEls.kn.style.top = w.y+'px';
+    tagEls.kn.classList.toggle('show', !!segKn.show);
+  } else tagEls.kn.classList.remove('show');
+}
+
 /* Bootstrap */
 (async function bootstrap(){
-  ({ THREE, ZapparThree: ZT } = await window.__depsReady);
+  const libs = await window.__depsReady;
+  THREE = libs.THREE; ZT = libs.ZapparThree;
   if (!THREE||!ZT){ dbg('libs not loaded'); return; }
   if (ZT.browserIncompatible()){ ZT.browserIncompatibleUI(); dbg('browser incompatible'); return; }
 
   renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
   renderer.setSize(innerWidth,innerHeight);
   renderer.domElement.classList.add('webgl'); document.body.appendChild(renderer.domElement);
-  addEventListener('resize', ()=>renderer.setSize(innerWidth,innerHeight));
+  addEventListener('resize', ()=>{
+    renderer.setSize(innerWidth,innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+  });
   ZT.glContextSet(renderer.getContext());
 
   camera=new ZT.Camera({userFacing:false});
@@ -213,6 +320,9 @@ function hookGestures(){
     }
     camera.updateFrame(renderer);
     renderer.render(scene,camera);
+
+    // интро шошго
+    if (currentVideo===vIntro) updateIntroTags();
   });
 
   document.addEventListener('visibilitychange', ()=>{ try{ document.hidden?camera.pause():camera.start(); }catch{} });
@@ -241,12 +351,17 @@ async function startIntroFlow(){
     hasPlaced=true; spinSpeed=0; hint.style.display='none'; removeEventListener('pointerdown', place);
     try{ vIntro.muted=false; await vIntro.play(); btnUnmute.style.display='none'; }
     catch{ vIntro.muted=true; vIntro.play().catch(()=>{}); btnUnmute.style.display='inline-block'; }
+    showTags = true; // интро шошго эхлүүлнэ
     dbg('intro placed');
   };
   addEventListener('pointerdown', place, {once:true, passive:true});
   hint.style.display='block';
 
-  vIntro.onended=()=>{ openMenu(); dbg('intro ended → menu'); };
+  vIntro.onended=()=>{
+    showTags=false;
+    Object.values(tagEls).forEach(el=>el.classList.remove('show'));
+    openMenu(); dbg('intro ended → menu');
+  };
 }
 
 /* ===== Menu logic ===== */
@@ -269,13 +384,11 @@ document.getElementById('mExercise').addEventListener('click', async ()=>{
   currentVideo=vEx;
   plane.material.map=texEx;
 
-  // Геометр хэмжээ тааруулна
   if (vEx.readyState>=1) fitPlaneToVideo(vEx);
   else await new Promise(r=>vEx.addEventListener('loadedmetadata', ()=>{fitPlaneToVideo(vEx); r();}, {once:true}));
 
-  // Шууд AR талбайд 1.8м урд байрлуулаад тоглуулна (tap шаардахгүй)
   tracker.setAnchorPoseFromCameraOffset(0,0,-1.8);
-  hasPlaced=true; spinSpeed=0; hint.style.display='block'; // gesture зөвлөмж үлдээнэ
+  hasPlaced=true; spinSpeed=0; hint.style.display='block';
 
   try{ vEx.currentTime=0; vEx.muted=false; await vEx.play(); btnUnmute.style.display='none'; }
   catch{ vEx.muted=true; vEx.play().catch(()=>{}); btnUnmute.style.display='inline-block'; }
@@ -292,7 +405,10 @@ document.getElementById('mKnowledge').addEventListener('click', ()=>notifySoon('
 btnUnmute.addEventListener('click', async ()=>{ try{ await currentVideo.play(); currentVideo.muted=false; btnUnmute.style.display='none'; }catch{} });
 
 /* Tap fallback */
-tapLay.addEventListener('pointerdown', async ()=>{ tapLay.style.display='none'; try{ await startIntroFlow(); }catch(e){ dbg('after tap failed: '+(e?.message||e)); } });
+tapLay.addEventListener('pointerdown', async ()=>{
+  tapLay.style.display='none';
+  try{ await startIntroFlow(); }catch(e){ dbg('after tap failed: '+(e?.message||e)); }
+});
 </script>
 </body>
 </html>
