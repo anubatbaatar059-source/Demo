@@ -19,12 +19,12 @@
   </style>
 
   <script>
-    // Хуучин service worker байж магад → салгая
+    // Service worker байж магадгүй → салгая
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
     }
 
-    // ✅ ZapparThree-г эхлээд LOCAL-аас, бүтэлгүйдвэл CDN-ээс ачаалж дууссаны дараа resolve хийх Promise
+    // ZapparThree-г эхлээд LOCAL-аас, бүтэлгүйдвэл CDN-ээс ачаалж дуустал нь хүлээх Promise
     window.__zapparReady = new Promise((resolve, reject) => {
       const done = () => window.ZapparThree && resolve(window.ZapparThree);
 
@@ -45,6 +45,9 @@
       document.head.appendChild(local);
     });
   </script>
+
+  <!-- THREE-г глобалаар ачаална (module биш) -->
+  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
 </head>
 <body>
   <div id="debug">DEBUG: booting…</div>
@@ -75,6 +78,7 @@
     const MP4_EXERCISE_URL = ""; // iOS fallback MP4 хэрэгтэй бол энд тавина
 
     const dbg = (m) => { document.getElementById('debug').textContent = 'DEBUG: ' + m; };
+    window.dbg = dbg; // глобал болгоё
 
     const cam   = document.getElementById('cam');
     const intro = document.getElementById('intro');
@@ -150,27 +154,34 @@
     window.addEventListener('DOMContentLoaded', window.boot);
   </script>
 
-  <!-- ===== AR логик (module) ===== -->
-  <script type="module">
-    import * as THREE from 'https://unpkg.com/three@0.152.2/build/three.module.js';
+  <!-- ===== AR логик (module биш) ===== -->
+  <script>
+    (function () {
+      const btn = document.getElementById('btnExercise');
+      btn.addEventListener('click', onExerciseClick);
 
-    (async () => {
-      // ZapparThree бүрэн ачаалтал хүлээнэ (local/CDN аль нь ч байсан OK)
-      const ZapparThree = await window.__zapparReady;
-      if (!ZapparThree) {
-        alert('ZapparThree ачаалагдсангүй (локал/CDN).');
-        throw new Error('ZapparThree not loaded');
-      }
+      async function onExerciseClick () {
+        window.dbg('btnExercise clicked');
 
-      // „Дасгал“ товч
-      document.getElementById('btnExercise').addEventListener('click', async () => {
+        // ZapparThree local/CDN аль нь ч бай ачаалтал хүлээе
+        let ZapparThree;
+        try {
+          ZapparThree = await window.__zapparReady;
+        } catch (e) {
+          alert('ZapparThree ачаалагдсангүй (локал/CDN).');
+          return;
+        }
+
         // UI нуух
         document.getElementById('menu').style.display = 'none';
         const wrap = document.getElementById('overlay-wrap');
-        wrap.style.visibility = 'hidden';
+        wrap.style.display = 'none';
         wrap.style.pointerEvents = 'none';
 
         await window.stopCam();
+
+        // THREE-г глобалаас
+        const THREE = window.THREE;
 
         // Renderer
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -197,7 +208,7 @@
         const granted = await ZapparThree.permissionRequest();
         if (!granted) { ZapparThree.permissionDeniedUI(); return; }
         camera.start();
-        document.getElementById('debug').textContent = 'DEBUG: zappar camera started';
+        window.dbg('zappar camera started');
 
         // Instant World Tracking
         const instantTracker = new ZapparThree.InstantWorldTracker();
@@ -209,12 +220,12 @@
         const tex = new THREE.VideoTexture(exerciseEl);
         tex.encoding = THREE.sRGBEncoding;
 
-        // Геометрыг видеоны харьцаагаар тохируулна
+        // Видеоны харьцаагаар хавтгай
         const makePlane = () => {
           const w = exerciseEl.videoWidth || 1280;
           const h = exerciseEl.videoHeight || 720;
-          const height = 0.7;               // газрын дээрх өндөр (метр)
-          const width  = height * (w / h);  // харьцаагаар нь
+          const height = 0.7;               // м
+          const width  = height * (w / h);
           return new THREE.Mesh(
             new THREE.PlaneGeometry(width, height),
             new THREE.MeshBasicMaterial({ map: tex, transparent:true, side: THREE.DoubleSide })
@@ -233,7 +244,7 @@
           anchorGroup.add(plane);
         }, { once:true });
 
-        // Track байрлуулалт ба render loop
+        // Render loop
         let placed = false;
         renderer.setAnimationLoop(() => {
           if (!placed) instantTracker.setAnchorPoseFromCameraOffset(0, 0, -2);
@@ -241,7 +252,7 @@
           renderer.render(scene, camera);
         });
 
-        // Эхний touch → байрлуулж видео дуугаар тоглуулна
+        // Эхний tap → байрлуулж, дуугаар тоглуулна
         const onFirstTap = () => {
           placed = true;
           exerciseEl.muted = false;
@@ -250,7 +261,7 @@
           window.removeEventListener('pointerdown', onFirstTap);
         };
         window.addEventListener('pointerdown', onFirstTap, { once:true, passive:true });
-      });
+      }
     })();
   </script>
 </body>
