@@ -1,246 +1,83 @@
 <!doctype html>
-<html lang="mn">
+<html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Intro → Меню → Дасгал</title>
-
-  <style>
-    :root { --z-ui:5; --z-menu:6; --z-debug:20 }
-    html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
-    canvas.webgl{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
-
-    #startLayer{position:fixed;inset:0;display:grid;place-items:center;z-index:var(--z-ui);background:#000}
-    .btn{padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
-    #btnUnmute{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
-
-    #menu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:var(--z-menu)}
-    .menu-inner{display:flex;flex-direction:column;gap:12px}
-
-    #debug{position:fixed;left:10px;top:10px;z-index:var(--z-debug);color:#0f0;background:rgba(0,0,0,.5);
-           padding:6px 8px;border-radius:6px;font:12px/1.2 monospace;white-space:pre-wrap;max-width:90vw}
-  </style>
-
-  <!-- THREE + Zappar -->
-  <script src="https://unpkg.com/three@0.152.2/build/three.min.js" defer></script>
-  <script src="https://unpkg.com/@zappar/zappar-threejs@2.5.2/umd/zappar-threejs.js" defer></script>
-
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
-    }
-    window.__depsReady = new Promise(res => addEventListener('load', () => {
-      res({ THREE: window.THREE, ZapparThree: window.ZapparThree });
-    }, { once:true }));
-  </script>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>WebAR World Tracking (Diag)</title>
+<style>
+ html,body{margin:0;height:100%;background:#000;overflow:hidden}
+ #gate{position:fixed;inset:0;display:grid;place-items:center;background:#000;z-index:10}
+ button{padding:14px 22px;border-radius:12px;border:0;font-size:16px}
+</style>
+<script src="https://libs.zappar.com/zappar-threejs/2.0.0/zappar-threejs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
 </head>
 <body>
-  <div id="debug">DEBUG: booting…</div>
+<div id="gate"><button id="startBtn">Start AR</button></div>
+<script>
+const dbg = m => { console.log("[DEBUG]", m); };
 
-  <!-- UI -->
-  <div id="startLayer"><button id="btnStart" class="btn">▶ ЭХЛҮҮЛЭХ</button></div>
-  <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
-  <div id="menu"><div class="menu-inner">
-    <button class="btn" id="btnExercise">Дасгал</button>
-  </div></div>
+dbg('env: https='+(location.protocol==='https:')+
+    ', media='+!!navigator.mediaDevices+
+    ', zappar='+!!window.ZapparThree);
 
-  <!-- Нууцлагдсан <video> элементүүд -->
-  <video id="vidIntro" playsinline preload="auto" style="display:none"></video>
-  <video id="vidExercise" playsinline preload="auto" loop style="display:none"></video>
+async function requestCameraDiag(){
+  try {
+    const ok = await (window.ZapparThree?.permissionRequest?.() ?? Promise.resolve(false));
+    if(ok) return dbg('permission via Zappar OK');
+  } catch(e){ dbg('Zappar perm error: '+e.name); }
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({video:true});
+    s.getTracks().forEach(t=>t.stop());
+    return dbg('permission via getUserMedia OK');
+  } catch(e){
+    dbg('getUserMedia error: '+e.name+' / '+e.message);
+    throw e;
+  }
+}
 
-  <script>
-    /********** Тохиргоо **********/
-    const INTRO_WEBM_URL     = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
-    const INTRO_MP4_URL      = "";
-    const EXERCISE_WEBM_URL  = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-    const EXERCISE_MP4_URL   = "";
+document.getElementById('startBtn').addEventListener('click', async()=>{
+  document.getElementById('gate').style.display='none';
+  await requestCameraDiag();
 
-    const dbg = (m)=>document.getElementById('debug').textContent = 'DEBUG: ' + m;
+  const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
 
-    const vIntro   = document.getElementById('vidIntro');
-    const vEx      = document.getElementById('vidExercise');
-    const startLy  = document.getElementById('startLayer');
-    const btnStart = document.getElementById('btnStart');
-    const btnUnmute= document.getElementById('btnUnmute');
-    const menu     = document.getElementById('menu');
+  const camera = new ZapparThree.Camera();
+  const scene = new THREE.Scene();
+  scene.background = null;
 
-    function setSources(el, webm, mp4=""){
-      el.crossOrigin = "anonymous";
-      el.innerHTML = "";
-      if (webm){ const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1); }
-      if (mp4 ){ const s2=document.createElement('source'); s2.src=mp4 ; s2.type='video/mp4'; el.appendChild(s2); }
-      el.load();
-    }
+  ZapparThree.glContextSet(renderer.getContext());
+  await ZapparThree.permissionRequest();
+  ZapparThree.permissionGranted().then(g=>{ if(!g) alert('Camera permission not granted'); });
 
-    /********** AR Engine **********/
-    let THREE, ZapparThree, renderer, camera, scene, tracker, anchor, plane;
-    let hasPlaced = false;
-    let texIntro, texEx, currentVideo;
+  const tracker = new ZapparThree.InstantWorldTracker();
+  const anchor = new ZapparThree.InstantWorldAnchorGroup(camera, tracker);
+  scene.add(anchor);
 
-    // Камерын зөвшөөрөл
-    async function ensureCamera() {
-      const ok = await ZapparThree.permissionRequest();
-      if (!ok) { ZapparThree.permissionDeniedUI(); throw new Error('Camera permission denied'); }
-      camera?.start();
-      dbg('camera started / resumed');
-    }
+  // Plane босоогоор
+  const H=0.9; const W=H*(16/9);
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(W,H),
+    new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.8,side:THREE.DoubleSide})
+  );
+  plane.position.y = H/2;
+  anchor.add(plane);
 
-    // Видео → Texture
-    function videoTexture(el){
-      const t = new THREE.VideoTexture(el);
-      t.colorSpace = THREE.SRGBColorSpace;
-      return t;
-    }
+  let hasPlaced=false;
+  window.addEventListener('click',()=>{
+    hasPlaced = true;
+    dbg('anchor placed');
+  });
 
-    // Plane-аа видеоны харьцаагаар тааруулж, доод ирмэгийг газарт тулгах
-    function fitPlaneToVideo(el){
-      const w = el.videoWidth  || 1280;
-      const h = el.videoHeight || 720;
-      const H = 0.9;                   // босоогоор 0.9м өндөр
-      const W = H * (w/h);
-      plane.geometry.dispose();
-      plane.geometry = new THREE.PlaneGeometry(W, H);
-      plane.position.set(0, H/2, 0);   // доод ирмэг нь y=0 дээр таарна
-    }
-
-    // Камерын зөвхөн yaw-г дагуулж босоогоор харуулах (billboard, хэвтэхгүй)
-    const _eul = new THREE.Euler(0,0,0,'YXZ');
-    function faceCameraYawOnly(){
-      _eul.setFromQuaternion(camera.quaternion, 'YXZ');
-      _eul.x = 0;          // pitch = 0  → upright
-      _eul.z = 0;          // roll  = 0
-      plane.quaternion.setFromEuler(_eul);
-    }
-
-    (async function bootstrap(){
-      ({ THREE, ZapparThree } = await window.__depsReady);
-      if (!THREE || !ZapparThree) { alert('THREE/ZapparThree ачаалагдсангүй'); throw new Error('Deps'); }
-      if (ZapparThree.browserIncompatible()) { ZapparThree.browserIncompatibleUI(); return; }
-
-      // Renderer
-      renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false, powerPreference:'high-performance' });
-      renderer.setSize(innerWidth, innerHeight);
-      renderer.domElement.classList.add('webgl');
-      document.body.appendChild(renderer.domElement);
-      addEventListener('resize', ()=>renderer.setSize(innerWidth, innerHeight));
-      ZapparThree.glContextSet(renderer.getContext());
-
-      // Камер + Scene
-      camera = new ZapparThree.Camera({ userFacing:false });
-      scene  = new THREE.Scene();
-      scene.background = camera.backgroundTexture;
-
-      // Tracker + Anchor
-      tracker = new ZapparThree.InstantWorldTracker();
-      anchor  = new ZapparThree.InstantWorldAnchorGroup(camera, tracker);
-      scene.add(anchor);
-
-      // Нийтэд ашиглах plane (анхнаасаа босоо, эргэлтгүй)
-      plane = new THREE.Mesh(
-        new THREE.PlaneGeometry(1, 1),
-        new THREE.MeshBasicMaterial({ transparent:true, side: THREE.DoubleSide })
-      );
-      plane.rotation.set(0,0,0);
-      anchor.add(plane);
-
-      // Render loop
-      renderer.setAnimationLoop(()=>{
-        if (!hasPlaced) {
-          // Байрлуулахаас өмнө 2м урд түр барина
-          tracker.setAnchorPoseFromCameraOffset(0, 0, -2);
-        }
-        // Plane-ийг upright + камерын зүгт харуулна
-        faceCameraYawOnly();
-
-        camera.updateFrame(renderer);
-        renderer.render(scene, camera);
-      });
-
-      // Foreground/Background үед камераа сэргээх
-      document.addEventListener('visibilitychange', ()=>{
-        if (!document.hidden) { try { camera.start(); } catch{} }
-        else { try { camera.pause(); } catch{} }
-      });
-
-      dbg('bootstrap ready (press ▶ ЭХЛҮҮЛЭХ)');
-    })();
-
-    // ▶ ЭХЛҮҮЛЭХ
-    btnStart.addEventListener('click', async ()=>{
-      try {
-        await ensureCamera();
-
-        setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
-        setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
-
-        texIntro = texIntro || videoTexture(vIntro);
-        texEx    = texEx    || videoTexture(vEx);
-
-        currentVideo = vIntro;
-        plane.material.map = texIntro;
-        hasPlaced = false;
-
-        if (vIntro.readyState >= 1) fitPlaneToVideo(vIntro);
-        else vIntro.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vIntro), { once:true });
-
-        try {
-          vIntro.muted = false;
-          await vIntro.play();
-          btnUnmute.style.display = 'none';
-        } catch {
-          vIntro.muted = true;
-          vIntro.play().catch(()=>{});
-          btnUnmute.style.display = 'inline-block';
-        }
-
-        const placeIntro = ()=>{
-          hasPlaced = true;
-          removeEventListener('pointerdown', placeIntro);
-          dbg('intro placed');
-        };
-        addEventListener('pointerdown', placeIntro, { once:true, passive:true });
-
-        startLy.style.display='none';
-        dbg('intro playing (tap to place). When ended → menu');
-
-        vIntro.onended = () => { menu.style.display = 'flex'; dbg('intro ended → menu'); };
-      } catch (e) {
-        console.error(e);
-        dbg('camera permission was denied or failed');
-      }
-    });
-
-    // Дууг асаах
-    btnUnmute.addEventListener('click', async ()=>{
-      try{ await currentVideo.play(); currentVideo.muted=false; btnUnmute.style.display='none'; }
-      catch{}
-    });
-
-    // „Дасгал“
-    document.getElementById('btnExercise').addEventListener('click', async ()=>{
-      menu.style.display = 'none';
-      try { await ensureCamera(); } catch {}
-
-      if (currentVideo) currentVideo.pause();
-      currentVideo = vEx;
-      plane.material.map = texEx;
-      hasPlaced = false;
-
-      if (vEx.readyState >= 1) fitPlaneToVideo(vEx);
-      else vEx.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vEx), { once:true });
-
-      const onFirstTap = ()=>{
-        hasPlaced = true;
-        vEx.currentTime = 0;
-        vEx.muted = false;
-        vEx.play().catch(()=>{});
-        removeEventListener('pointerdown', onFirstTap);
-        dbg('exercise placed & playing');
-      };
-      addEventListener('pointerdown', onFirstTap, { once:true, passive:true });
-
-      dbg('exercise ready (tap to place & play)');
-    });
-  </script>
+  function animate(){
+    requestAnimationFrame(animate);
+    if(!hasPlaced) tracker.setAnchorPoseFromCameraOffset(0,0,-2);
+    renderer.render(scene,camera);
+  }
+  animate();
+});
+</script>
 </body>
 </html>
