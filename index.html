@@ -26,9 +26,11 @@
   <script src="https://unpkg.com/@zappar/zappar-threejs@2.5.2/umd/zappar-threejs.js" defer></script>
 
   <script>
+    // Service worker-ууд permission-т саад болохоос сэргийлж бүртгэлгүй болгоно
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
     }
+    // THREE/Zappar бэлэн болмогц resolve
     window.__depsReady = new Promise(res => addEventListener('load', () => {
       res({ THREE: window.THREE, ZapparThree: window.ZapparThree });
     }, { once:true }));
@@ -38,7 +40,7 @@
   <div id="debug">DEBUG: booting…</div>
 
   <!-- UI -->
-  <div id="startLayer"><button id="btnStart" class="btn">▶ ЭХЛҮҮЛЭХ</button></div>
+  <div id="startLayer"><button id="btnStart" class="btn" disabled>▶ ЭХЛҮҮЛЭХ</button></div>
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
   <div id="menu"><div class="menu-inner">
     <button class="btn" id="btnExercise">Дасгал</button>
@@ -51,11 +53,16 @@
   <script>
     /********** Тохиргоо **********/
     const INTRO_WEBM_URL     = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
-    const INTRO_MP4_URL      = "";
+    const INTRO_MP4_URL      = ""; // ← Хэрэв fallback хэрэгтэй бол MP4 URL тавь
     const EXERCISE_WEBM_URL  = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-    const EXERCISE_MP4_URL   = "";
+    const EXERCISE_MP4_URL   = ""; // ← Хэрэв fallback хэрэгтэй бол MP4 URL тавь
 
-    const dbg = (m)=>document.getElementById('debug').textContent = 'DEBUG: ' + m;
+    const $debug = document.getElementById('debug');
+    const dbg = (m)=>{
+      // хамгийн сүүлийн лог л харагдах байдлаар (хэрэв хүсвэл += хийж хуримтлуулж болно)
+      $debug.textContent = 'DEBUG: ' + m;
+      console.log('[DEBUG]', m);
+    };
 
     const vIntro   = document.getElementById('vidIntro');
     const vEx      = document.getElementById('vidExercise');
@@ -64,11 +71,20 @@
     const btnUnmute= document.getElementById('btnUnmute');
     const menu     = document.getElementById('menu');
 
+    const canPlay = {
+      webm: !!document.createElement('video').canPlayType('video/webm; codecs="vp8,opus"'),
+      mp4 : !!document.createElement('video').canPlayType('video/mp4; codecs="avc1.64001E,mp4a.40.2"') // ерөнхий H.264+AAC
+    };
+
     function setSources(el, webm, mp4=""){
       el.crossOrigin = "anonymous";
       el.innerHTML = "";
-      if (webm){ const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1); }
-      if (mp4 ){ const s2=document.createElement('source'); s2.src=mp4 ; s2.type='video/mp4'; el.appendChild(s2); }
+      // Тоглож чадах форматаа эхэлж тавина
+      if (canPlay.webm && webm){
+        const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1);
+      } else if (canPlay.mp4 && mp4){
+        const s2=document.createElement('source'); s2.src=mp4 ; s2.type='video/mp4'; el.appendChild(s2);
+      }
       el.load();
     }
 
@@ -79,10 +95,31 @@
 
     // Камерын зөвшөөрөл
     async function ensureCamera() {
-      const ok = await ZapparThree.permissionRequest();
-      if (!ok) { ZapparThree.permissionDeniedUI(); throw new Error('Camera permission denied'); }
-      camera?.start();
-      dbg('camera started / resumed');
+      try {
+        // Secure origin шалгалт
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+          dbg('⚠️ HTTPS/localhost биш тул camera permission блоклогдоно');
+        }
+        if (window.top !== window.self) {
+          dbg('⚠️ Iframe дотор ажиллаж байна → permission блоклогдож магадгүй');
+        }
+
+        const statusBefore = await (ZapparThree.permissionStatus?.() ?? Promise.resolve('unknown'));
+        dbg('permission status BEFORE: ' + statusBefore);
+
+        const ok = await ZapparThree.permissionRequest();
+        dbg('permission result: ' + ok);
+        if (!ok) {
+          ZapparThree.permissionDeniedUI();
+          throw new Error('User denied / cannot grant camera permission');
+        }
+        await camera.start(); // ← заавал await
+        dbg('camera started');
+      } catch (e) {
+        console.error(e);
+        dbg('❌ ensureCamera() failed: ' + (e?.message ?? e));
+        throw e;
+      }
     }
 
     // Видео → Texture
@@ -157,24 +194,30 @@
       });
 
       // Foreground/Background үед камераа сэргээх
-      document.addEventListener('visibilitychange', ()=>{
-        if (!document.hidden) { try { camera.start(); } catch{} }
-        else { try { camera.pause(); } catch{} }
+      document.addEventListener('visibilitychange', async ()=>{
+        try {
+          if (!document.hidden) { await camera.start(); dbg('camera resumed'); }
+          else { camera.pause?.(); }
+        } catch(e) { dbg('resume failed: ' + (e?.message ?? e)); }
       });
 
+      // Эхний видео эх үүсвэрүүдийг тоглож чадах форматад тааруулж тохируулна
+      setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
+      setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
+
+      // Текстурүүдийг урьдчилан бэлдэнэ (хоцролт багасна)
+      texIntro = videoTexture(vIntro);
+      texEx    = videoTexture(vEx);
+
+      btnStart.disabled = false;
       dbg('bootstrap ready (press ▶ ЭХЛҮҮЛЭХ)');
     })();
 
     // ▶ ЭХЛҮҮЛЭХ
     btnStart.addEventListener('click', async ()=>{
+      btnStart.disabled = true; // олон даруулж давхар урсгал үүсгэхээс хамгаална
       try {
         await ensureCamera();
-
-        setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
-        setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
-
-        texIntro = texIntro || videoTexture(vIntro);
-        texEx    = texEx    || videoTexture(vEx);
 
         currentVideo = vIntro;
         plane.material.map = texIntro;
@@ -187,9 +230,11 @@
           vIntro.muted = false;
           await vIntro.play();
           btnUnmute.style.display = 'none';
-        } catch {
+        } catch (e) {
+          // Autoplay block → muted autoplay + unmute товч
+          dbg('autoplay blocked: ' + (e?.message ?? e));
           vIntro.muted = true;
-          vIntro.play().catch(()=>{});
+          await vIntro.play().catch(()=>{});
           btnUnmute.style.display = 'inline-block';
         }
 
@@ -207,13 +252,19 @@
       } catch (e) {
         console.error(e);
         dbg('camera permission was denied or failed');
+        btnStart.disabled = false; // дахин оролдож болно
       }
     });
 
     // Дууг асаах
     btnUnmute.addEventListener('click', async ()=>{
-      try{ await currentVideo.play(); currentVideo.muted=false; btnUnmute.style.display='none'; }
-      catch{}
+      try{
+        await currentVideo.play();
+        currentVideo.muted=false;
+        btnUnmute.style.display='none';
+      } catch(e){
+        dbg('unmute failed: ' + (e?.message ?? e));
+      }
     });
 
     // „Дасгал“
