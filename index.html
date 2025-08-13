@@ -3,85 +3,46 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Intro→Меню→Дасгал (Audio, Drag & Zoom + Intro Hotspots)</title>
+  <title>WebAR + Zappar — Intro→Меню→Дасгал (Hotspots + Drag/Zoom)</title>
   <style>
-    :root { --z-cam:0; --z-canvas:1; --z-video:2; --z-menu:3; --z-hot:4; --z-toast:5; }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial}
+    :root{--z-ui:10;--z-toast:11}
 
-    /* Камер (арын) */
-    #cam{
-      position:fixed;inset:0;width:100%;height:100%;
-      object-fit:cover;background:#000;z-index:var(--z-cam);
-      transform:scaleX(-1);
-    }
+    /* Zappar canvas */
+    #zappar-canvas{position:fixed;inset:0;width:100vw;height:100vh;display:block;background:#000}
 
-    /* Unity canvas (хэрэглэхгүй ч үлдээе) */
-    #unity-canvas{
-      position:fixed;inset:0;width:100vw;height:100vh;
-      background:transparent!important;z-index:var(--z-canvas);display:none;
-    }
+    /* HTML видеонууд — ПЛЕЙБЭК л хийж, дэлгэцэнд харагдахгүй */
+    #overlay-wrap{display:none}
+    .overlay{display:none}
 
-    /* Видеонууд */
-    #overlay-wrap{ position:fixed; inset:0; z-index:var(--z-video); display:none; touch-action:none; }
-    .overlay{
-      position:absolute; inset:0; width:100%; height:100%;
-      object-fit:contain; background:transparent; display:none;
-      pointer-events:auto; transform-origin:center center;
-      transform:translate(0,0) scale(1);
-    }
-
-    /* Меню */
+    /* Төв меню */
     #menu{
-      position:fixed; inset:0; display:none; align-items:center; justify-content:center;
-      z-index:var(--z-menu); pointer-events:none; background:none; animation:fadeIn .35s ease both;
+      position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+      z-index:var(--z-ui);pointer-events:none;background:none;animation:fadeIn .35s ease both;
     }
-    .menu-inner{
-      display:flex; flex-direction:column; gap:12px; pointer-events:auto;
-      transform:translateY(18px); opacity:0; animation:slideUp .4s .05s ease-out both;
-    }
-    .btn{
-      width:200px; text-align:center; padding:14px 18px; border:0; border-radius:14px; cursor:pointer;
-      background:#fff; color:#111; font-weight:700; font-size:16px; box-shadow:0 8px 28px rgba(0,0,0,.25);
-    }
-    .btn:active{ transform:translateY(1px) }
+    .menu-inner{display:flex;flex-direction:column;gap:12px;pointer-events:auto;transform:translateY(18px);opacity:0;animation:slideUp .4s .05s ease-out both}
+    .btn{width:200px;text-align:center;padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;font-size:16px;box-shadow:0 8px 28px rgba(0,0,0,.25)}
+    .btn:active{transform:translateY(1px)}
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
     @keyframes slideUp{from{opacity:0;transform:translateY(32px)}to{opacity:1;transform:translateY(18px)}}
 
-    /* Intro-д ЗӨВХӨН харагдах hotspots (дарж болохгүй) */
-    #hotspots{ position:fixed; inset:0; z-index:var(--z-hot); display:none; pointer-events:none; }
-    .hotbtn{
-      position:absolute; transform:translate(-50%,-50%);
-      padding:10px 14px; border:0; border-radius:12px;
-      background:rgba(17,17,17,.9); color:#fff; font-weight:700; font-size:14px;
-      box-shadow:0 10px 24px rgba(0,0,0,.28); opacity:0; animation:hotIn .25s ease forwards;
-      user-select:none;
-    }
+    /* Intro hotspot (display-only) */
+    #hotspots{position:fixed;inset:0;z-index:var(--z-ui);display:none;pointer-events:none}
+    .hotbtn{position:absolute;transform:translate(-50%,-50%);padding:10px 14px;border:0;border-radius:12px;background:rgba(17,17,17,.9);color:#fff;font-weight:700;font-size:14px;box-shadow:0 10px 24px rgba(0,0,0,.28);opacity:0;animation:hotIn .25s ease forwards;user-select:none}
     @keyframes hotIn{from{opacity:0;transform:translate(-50%,-58%)}to{opacity:1;transform:translate(-50%,-50%)}}
 
-    /* Autoplay сануулга */
-    #toast{
-      position:fixed; left:50%; top:18px; transform:translateX(-50%); z-index:var(--z-toast);
-      background:rgba(0,0,0,.7); color:#fff; border-radius:10px; padding:10px 14px; font-size:13px; display:none;
-    }
-
-    /* Reset (сонголтоор) */
-    #reset{
-      position:fixed; right:12px; bottom:20px; z-index:var(--z-menu);
-      padding:10px 12px; border:0; border-radius:10px; background:#fff; color:#111; cursor:pointer; display:none;
-    }
+    #toast{position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:var(--z-toast);background:rgba(0,0,0,.7);color:#fff;border-radius:10px;padding:10px 14px;font-size:13px;display:none}
+    #reset{position:fixed;right:12px;bottom:20px;z-index:var(--z-ui);padding:10px 12px;border:0;border-radius:10px;background:#fff;color:#111;cursor:pointer;display:none}
   </style>
 </head>
 <body>
-  <!-- Камер -->
-  <video id="cam" playsinline autoplay muted></video>
+  <!-- Zappar WebGL canvas -->
+  <canvas id="zappar-canvas"></canvas>
 
-  <!-- Unity canvas (шаардвал) -->
-  <canvas id="unity-canvas"></canvas>
-
-  <!-- Видеонууд -->
+  <!-- Таны HTML VIDEOS: play/дууг чинь эндээс удирдана -->
   <div id="overlay-wrap">
-    <video id="intro" class="overlay" playsinline></video>
-    <video id="exercise" class="overlay" playsinline loop></video>
+    <video id="intro" class="overlay" playsinline crossorigin="anonymous"></video>
+    <video id="exercise" class="overlay" playsinline loop crossorigin="anonymous"></video>
   </div>
 
   <!-- Intro үеийн цагтай hotspots (display-only) -->
@@ -99,183 +60,216 @@
   <button id="reset" type="button">Reset</button>
   <div id="toast">🔊 Дууг идэвхжүүлэхийн тулд дэлгэц дээр нэг дарна уу</div>
 
+  <!-- Three.js + ZapparThree (CDN) -->
+  <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+  <script src="https://libs.zappar.com/zappar-threejs/2.3.1/zappar-threejs.min.js"></script>
+
 <script>
-  /* ===== ТАНЫ URL-ууд ===== */
-  const INTRO_URL    = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
-  const EXERCISE_URL = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
+/* ===== ТАНЫ URL-ууд ===== */
+const INTRO_URL    = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
+const EXERCISE_URL = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
 
-  /* ===== Элементүүд ===== */
-  const cam = document.getElementById('cam');
-  const wrap = document.getElementById('overlay-wrap');
-  const intro = document.getElementById('intro');
-  const exercise = document.getElementById('exercise');
-  const menu = document.getElementById('menu');
-  const btnExercise = document.getElementById('btnExercise');
-  const toast = document.getElementById('toast');
-  const resetBtn = document.getElementById('reset');
-  const hotspotLayer = document.getElementById('hotspots');
+/* ===== DOM ===== */
+const canvas = document.getElementById('zappar-canvas');
+const intro = document.getElementById('intro');
+const exercise = document.getElementById('exercise');
+const menu = document.getElementById('menu');
+const btnExercise = document.getElementById('btnExercise');
+const hotspotLayer = document.getElementById('hotspots');
+const toast = document.getElementById('toast');
+const resetBtn = document.getElementById('reset');
 
-  /* ===== Аудио resume ===== */
-  let audioCtx;
-  async function ensureAudioFromStart(){
-    try{
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      if (!audioCtx) audioCtx = new Ctx();
-      if (audioCtx.state === 'suspended') { await audioCtx.resume().catch(()=>{}); }
-    }catch(_){}
-  }
+/* ===== Видеонд эх сурвалж оноох ===== */
+function setSources(videoEl, webmUrl){
+  videoEl.innerHTML = "";
+  const s1 = document.createElement('source');
+  s1.src = webmUrl;
+  s1.type = 'video/webm; codecs="vp8,opus"'; // Chrome/Android alpha OK. iOS-д HEVC+alpha хэрэгтэй
+  videoEl.appendChild(s1);
+}
 
-  /* ===== Камер ===== */
-  async function startCamera(){
-    try{
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video:{ facingMode:{ ideal:'environment' } }, audio:false
-      });
-      cam.srcObject = stream; await cam.play();
-    }catch(e){
-      console.warn('No camera, continue without AR bg:', e.message);
-      cam.style.display = 'none'; // камераар бүтэхгүй бол зүгээр нуучих
-    }
-  }
+/* ===== Zappar + Three.js setup ===== */
+let renderer, scene, camera, instantTracker, anchor, plane, planeMat;
+let activeVideo = null; // intro эсвэл exercise
+let videoTexIntro, videoTexExercise;
 
-  /* ===== Эх сурвалж оноох ===== */
-  function setSources(videoEl, webmUrl){
-    videoEl.innerHTML = "";
-    const s1 = document.createElement('source');
-    s1.src = webmUrl;
-    s1.type = 'video/webm; codecs="vp8,opus"';
-    videoEl.appendChild(s1);
-  }
+async function initZappar(){
+  // Camera permission UI
+  const granted = await ZapparThree.permissionRequestUI();
+  if (!granted) { ZapparThree.permissionDeniedUI(); return; }
 
-  /* ===== Drag + Pinch-Zoom (логик өөрчлөгдөөгүй) ===== */
-  let active = null, scale = 1, startScale = 1, tx = 0, ty = 0, startX = 0, startY = 0, startDist = 0;
-  const dist = (a,b)=>Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+  renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
 
-  function applyTransform(){ if(!active) return; active.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; }
-  function resetTransform(){ scale = 1; tx = 0; ty = 0; applyTransform(); }
+  scene = new THREE.Scene();
+  camera = new ZapparThree.Camera();
+  scene.background = null;
+  scene.add(camera);
 
-  wrap.addEventListener('mousedown', e=>{
-    startX = e.clientX - tx; startY = e.clientY - ty;
-    const mm = e2 => { tx = e2.clientX - startX; ty = e2.clientY - startY; applyTransform(); };
-    const mu = ()=>{ window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
-    window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
+  // Камер feed-ийг renderer-т холбох
+  ZapparThree.glContextSet(renderer.getContext());
+
+  // Instant World Tracker (дэлхий дээр тавих)
+  instantTracker = new ZapparThree.InstantWorldTracker();
+  anchor = new ZapparThree.InstantWorldAnchorGroup(camera, instantTracker);
+  scene.add(anchor);
+
+  // 3D plane — дээр нь видео текстур наана
+  const planeGeo = new THREE.PlaneGeometry(1, 1); // aspect-ийг дараа resize-д тааруулна
+  // Видео texture-үүд
+  videoTexIntro = new THREE.VideoTexture(intro);
+  videoTexIntro.needsUpdate = true;
+  videoTexIntro.colorSpace = THREE.SRGBColorSpace;
+
+  videoTexExercise = new THREE.VideoTexture(exercise);
+  videoTexExercise.needsUpdate = true;
+  videoTexExercise.colorSpace = THREE.SRGBColorSpace;
+
+  planeMat = new THREE.MeshBasicMaterial({
+    map: videoTexIntro, transparent: true, side: THREE.DoubleSide
   });
+  plane = new THREE.Mesh(planeGeo, planeMat);
+  plane.scale.set(1.2, 1.2, 1); // анхны хэмжээ
+  anchor.add(plane);
 
-  wrap.addEventListener('touchstart', e=>{
-    if(!active) return;
-    if(e.touches.length===1){ startX = e.touches[0].clientX - tx; startY = e.touches[0].clientY - ty; }
-    else if(e.touches.length===2){ startDist = dist(e.touches[0], e.touches[1]); startScale = scale; }
-  }, {passive:false});
+  // Placement helper: эхний хэдэн секунд дэлгэцийн төвд lock
+  instantTracker.setAnchorPoseFromCameraOffset(0, 0, -2); // 2m урд талд
 
-  wrap.addEventListener('touchmove', e=>{
-    if(!active) return; e.preventDefault();
-    if(e.touches.length===1){ tx = e.touches[0].clientX - startX; ty = e.touches[0].clientY - startY; }
-    else if(e.touches.length===2){ const d = dist(e.touches[0], e.touches[1]); scale = Math.max(0.5, Math.min(3, startScale*(d/startDist))); }
-    applyTransform();
-  }, {passive:false});
+  window.addEventListener('resize', onResize);
+  onResize();
 
-  // double-tap/click → reset
-  let lastTap = 0;
-  wrap.addEventListener('click', ()=>{ const now = Date.now(); if(now - lastTap < 300) resetTransform(); lastTap = now; });
-  resetBtn.addEventListener('click', resetTransform);
-
-  /* ===== Autoplay fallback ===== */
-  async function playWithAudio(el){
-    el.muted = false; el.volume = 1.0;
-    try{ await el.play(); toast.style.display='none'; }
-    catch{
-      toast.textContent = "🔊 Дууг идэвхжүүлэхийн тулд дэлгэц дээр нэг дарна уу";
-      toast.style.display = "block";
-      el.muted = true; el.play().catch(()=>{});
-      const enable = ()=>{ el.muted=false; el.volume=1.0; toast.style.display='none'; document.removeEventListener('pointerdown', enable, {passive:true}); };
-      document.addEventListener('pointerdown', enable, {passive:true, once:true});
-    }
-  }
-
-  /* ===== Intro-д ЗӨВХӨН харагдах hotspot-ууд =====
-     x,y — % координат; start/end — секунд
-     -> Энд секунд, байрлалаа бичлэгтээ тааруулаад өөрчилнө.
-  */
-  const INTRO_HOTSPOTS = [
-    { start: 2.0, end: 4.5, items: [
-      { id:'hs1', label:'Заавар',   x:28, y:56 },
-      { id:'hs2', label:'Мэдээлэл', x:64, y:42 }
-    ]},
-    { start: 7.0, end: 9.5, items: [
-      { id:'hs3', label:'Дараах алхам', x:50, y:78 }
-    ]}
-  ];
-
-  let hotspotSpec = [], lastWindow = null;
-  function clearHotspots(){ hotspotLayer.innerHTML=""; hotspotLayer.style.display="none"; lastWindow=null; }
-  function renderHotspots(items){
-    hotspotLayer.innerHTML = ""; hotspotLayer.style.display = "block";
-    for(const it of items){
-      const b = document.createElement('div');
-      b.className = 'hotbtn';
-      b.textContent = it.label;
-      b.style.left = it.x + '%';
-      b.style.top  = it.y + '%';
-      // pointer-events:none тул интрод дарж болохгүй — зөвхөн харагдана
-      hotspotLayer.appendChild(b);
-    }
-  }
-  function updateHotspots(t){
-    const win = hotspotSpec.find(w => t>=w.start && t<=w.end) || null;
-    if(!win){ if(lastWindow) clearHotspots(); return; }
-    if(lastWindow && win.start===lastWindow.start && win.end===lastWindow.end) return;
-    lastWindow = win; renderHotspots(win.items);
-  }
-  function onIntroTime(){ updateHotspots(intro.currentTime); }
-
-  /* ===== Урсгал ===== */
-  async function boot(){
-    await startCamera();
-    await ensureAudioFromStart();
-
-    setSources(intro, INTRO_URL);
-    setSources(exercise, EXERCISE_URL);
-
-    wrap.style.display = "block";
-    resetBtn.style.display = "inline-block";
-
-    // Intro эхлүүлэх
-    active = intro; resetTransform();
-    intro.currentTime = 0;
-    intro.style.display = "block";
-
-    // Intro дээр hotspot тайминг идэвхжүүлнэ
-    hotspotSpec = INTRO_HOTSPOTS;
-    intro.addEventListener('timeupdate', onIntroTime);
-
-    await playWithAudio(intro);
-  }
-
-  // Intro дуусмагц → hotspots алга болж, меню гарна (таны өмнөх логик)
-  intro.addEventListener('ended', ()=>{
-    clearHotspots();
-    intro.removeEventListener('timeupdate', onIntroTime);
-    intro.style.display = "none";
-    active = null;
-    menu.style.display = "flex";
+  renderer.setAnimationLoop(()=> {
+    camera.updateFrame(renderer);
+    renderer.render(scene, camera);
   });
+}
 
-  // “Дасгал” товч → exercise alpha-г камерын дээр loop-той
-  btnExercise.addEventListener('click', async ()=>{
-    menu.style.display = "none";
-    active = exercise; resetTransform();
-    exercise.currentTime = 0; exercise.style.display = "block";
-    try{ await exercise.play(); toast.style.display='none'; }
-    catch{
-      toast.style.display='block';
-      exercise.muted = true; exercise.play().catch(()=>{});
-      const enable2 = ()=>{ exercise.muted=false; exercise.volume=1.0; toast.style.display='none'; document.removeEventListener('pointerdown', enable2, {passive:true}); };
-      document.addEventListener('pointerdown', enable2, {passive:true, once:true});
-    }
-  });
+function onResize(){
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+}
 
-  window.addEventListener('DOMContentLoaded', boot);
+/* ===== Drag + Pinch-Zoom → 3D-plane-д хэрэгжүүлэх ===== */
+let scale2d = 1, startScale = 1, tx = 0, ty = 0, sx = 0, sy = 0, startDist = 0;
+const dist = (a,b)=>Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+
+function applyPlaneTransform(){
+  // дэлгэцийн пиксел оффсетийг дэлхийтэй ойролцоогоор холбож жижиг коэффициент хэрэглэе
+  const k = 0.002; // мэдрэмж
+  plane.position.set(tx*k, -ty*k, 0);
+  plane.scale.set(1.2*scale2d, 1.2*scale2d, 1);
+}
+function resetTransform(){
+  scale2d = 1; tx = 0; ty = 0; applyPlaneTransform();
+}
+canvas.addEventListener('mousedown', e=>{
+  sx = e.clientX - tx; sy = e.clientY - ty;
+  const mm = e2 => { tx = e2.clientX - sx; ty = e2.clientY - sy; applyPlaneTransform(); };
+  const mu = () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
+  window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
+});
+canvas.addEventListener('touchstart', e=>{
+  if (!activeVideo) return;
+  if (e.touches.length===1){ sx = e.touches[0].clientX - tx; sy = e.touches[0].clientY - ty; }
+  else if (e.touches.length===2){ startDist = dist(e.touches[0], e.touches[1]); startScale = scale2d; }
+},{passive:false});
+canvas.addEventListener('touchmove', e=>{
+  if (!activeVideo) return; e.preventDefault();
+  if (e.touches.length===1){ tx = e.touches[0].clientX - sx; ty = e.touches[0].clientY - sy; }
+  else if (e.touches.length===2){ const d=dist(e.touches[0], e.touches[1]); scale2d = Math.max(0.5, Math.min(3, startScale*(d/startDist))); }
+  applyPlaneTransform();
+},{passive:false});
+let lastTap=0;
+canvas.addEventListener('click', ()=>{ const n=Date.now(); if(n-lastTap<300) resetTransform(); lastTap=n; });
+resetBtn.addEventListener('click', resetTransform);
+
+/* ===== Autoplay fallback ===== */
+async function playWithAudio(el){
+  el.muted = false; el.volume = 1.0;
+  try { await el.play(); toast.style.display='none'; }
+  catch {
+    toast.textContent = "🔊 Дууг идэвхжүүлэхийн тулд дэлгэц дээр нэг дарна уу";
+    toast.style.display = "block";
+    el.muted = true; el.play().catch(()=>{});
+    const enable = ()=>{ el.muted=false; el.volume=1.0; toast.style.display='none'; document.removeEventListener('pointerdown', enable, {passive:true}); };
+    document.addEventListener('pointerdown', enable, {passive:true, once:true});
+  }
+}
+
+/* ===== Intro hotspot-ууд (display only) ===== */
+const INTRO_HOTSPOTS = [
+  { start: 2.0, end: 4.5, items: [
+    { id:'hs1', label:'Заавар',   x:28, y:56 },
+    { id:'hs2', label:'Мэдээлэл', x:64, y:42 }
+  ]},
+  { start: 7.0, end: 9.5, items: [
+    { id:'hs3', label:'Дараах алхам', x:50, y:78 }
+  ]}
+];
+let hotspotSpec=[], lastWindow=null;
+function clearHotspots(){ hotspotLayer.innerHTML=""; hotspotLayer.style.display="none"; lastWindow=null; }
+function renderHotspots(items){
+  hotspotLayer.innerHTML=""; hotspotLayer.style.display="block";
+  for(const it of items){
+    const b=document.createElement('div');
+    b.className='hotbtn'; b.textContent=it.label;
+    b.style.left=it.x+'%'; b.style.top=it.y+'%';
+    hotspotLayer.appendChild(b);
+  }
+}
+function updateHotspots(t){
+  const win = hotspotSpec.find(w => t>=w.start && t<=w.end) || null;
+  if(!win){ if(lastWindow) clearHotspots(); return; }
+  if(lastWindow && win.start===lastWindow.start && win.end===lastWindow.end) return;
+  lastWindow = win; renderHotspots(win.items);
+}
+function onIntroTime(){ updateHotspots(intro.currentTime); }
+
+/* ===== Урсгал ===== */
+async function boot(){
+  setSources(intro, INTRO_URL);
+  setSources(exercise, EXERCISE_URL);
+
+  await initZappar(); // Камер + 3D сцена
+
+  // Intro эхлүүлэх (видеог plane дээр холбоно)
+  activeVideo = intro;
+  planeMat.map = videoTexIntro;
+  planeMat.needsUpdate = true;
+
+  hotspotSpec = INTRO_HOTSPOTS;
+  intro.addEventListener('timeupdate', onIntroTime);
+
+  resetBtn.style.display='inline-block';
+
+  intro.currentTime = 0;
+  await playWithAudio(intro);
+}
+
+/* ===== Intro дуусна → Меню гарна (логик хэвээр) ===== */
+intro.addEventListener('ended', ()=>{
+  clearHotspots();
+  intro.removeEventListener('timeupdate', onIntroTime);
+  activeVideo = null;
+  menu.style.display = "flex";
+});
+
+/* ===== “Дасгал” товч ===== */
+btnExercise.addEventListener('click', async ()=>{
+  menu.style.display = "none";
+  // plane-ийг exercise видео руу шилжүүлнэ
+  planeMat.map = videoTexExercise;
+  planeMat.needsUpdate = true;
+
+  activeVideo = exercise;
+  resetTransform();
+
+  exercise.currentTime = 0;
+  await playWithAudio(exercise);
+});
+
+window.addEventListener('DOMContentLoaded', boot);
 </script>
 </body>
 </html>
