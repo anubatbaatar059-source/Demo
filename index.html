@@ -21,16 +21,13 @@
            padding:6px 8px;border-radius:6px;font:12px/1.2 monospace;white-space:pre-wrap;max-width:90vw}
   </style>
 
-  <!-- THREE + Zappar (smoke test-тэй ижил хувилбарууд) -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js" defer></script>
   <script src="https://unpkg.com/@zappar/zappar-threejs@2.5.2/umd/zappar-threejs.js" defer></script>
 
   <script>
-    // Хуучин service worker салгах (кэштэй холбоотой будлиан гарвал):
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
     }
-    // Сангууд бэлэн болмогц:
     window.__depsReady = new Promise(res => addEventListener('load', () => {
       res({ THREE: window.THREE, ZapparThree: window.ZapparThree });
     }, { once:true }));
@@ -39,24 +36,21 @@
 <body>
   <div id="debug">DEBUG: booting…</div>
 
-  <!-- UI -->
   <div id="startLayer"><button id="btnStart" class="btn">▶ ЭХЛҮҮЛЭХ</button></div>
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
   <div id="menu"><div class="menu-inner">
     <button class="btn" id="btnExercise">Дасгал</button>
   </div></div>
 
-  <!-- Нууцлагдсан <video> элементүүд (AR текстурт хэрэглэнэ) -->
   <video id="vidIntro" playsinline preload="auto" style="display:none"></video>
   <video id="vidExercise" playsinline preload="auto" loop style="display:none"></video>
 
   <script>
     /********** Тохиргоо **********/
-    // ⚠️ iOS Safari WebM+alpha (VP8/VP9) дэмжихгүй — доорх *_MP4_URL-д альфа биш MP4 fallback тавьж болно.
     const INTRO_WEBM_URL     = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
-    const INTRO_MP4_URL      = "";   // iOS fallback (альфа байхгүй, хөшигтэй хувилбар)
+    const INTRO_MP4_URL      = "";   // iOS fallback (альфа биш)
     const EXERCISE_WEBM_URL  = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-    const EXERCISE_MP4_URL   = "";   // iOS fallback (альфа байхгүй)
+    const EXERCISE_MP4_URL   = "";   // iOS fallback (альфа биш)
 
     const dbg = (m)=>document.getElementById('debug').textContent = 'DEBUG: ' + m;
 
@@ -77,112 +71,126 @@
 
     /********** AR Engine **********/
     let THREE, ZapparThree, renderer, camera, scene, tracker, anchor, plane;
-    let hasPlaced = false;     // одоогийн контентыг газар дээр байрлуулсан эсэх
+    let hasPlaced = false;
     let texIntro, texEx, currentVideo;
 
-    // Камераа эргэн сэргээх util (удаан туршилтаар тасалдахыг барина)
-    async function ensureCamera() {
-      const ok = await ZapparThree.permissionRequest(); // товч даралт дээр дуудагдана
-      if (!ok) { ZapparThree.permissionDeniedUI(); throw new Error('Camera permission denied'); }
-      camera?.start();
-      dbg('camera started / resumed');
-    }
-
-    // Видео → Three.js Texture
-    function videoTexture(el){
-      const t = new THREE.VideoTexture(el);
-      t.colorSpace = THREE.SRGBColorSpace;
-      return t;
-    }
-    // Plane-аа видеоны харьцаагаар тохируулах
+    // Харьцаа → plane хэмжээс
     function fitPlaneToVideo(el){
       const w = el.videoWidth  || 1280;
       const h = el.videoHeight || 720;
-      const H = 0.9;                 // метр — өндрийг 0.9м гэж тогтов
+      const H = 1.0; // м — арай өндөррүү (чанарт гоё харагдана)
       const W = H * (w/h);
       plane.geometry.dispose();
       plane.geometry = new THREE.PlaneGeometry(W, H);
     }
 
-    // Сангуудыг ачаалсны дараа renderer/camera/scene-ээ үүсгэнэ (эхлүүлэлт товч дарахад Permission асуух)
+    // Видео → Texture (чанар сайжруулалттай)
+    function makeVideoTexture(el){
+      const t = new THREE.VideoTexture(el);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.minFilter = THREE.LinearFilter;
+      t.magFilter = THREE.LinearFilter;
+      t.generateMipmaps = false;
+      t.needsUpdate = true;
+      return t;
+    }
+
+    // Пермишн/камер сэргээх
+    async function ensureCamera() {
+      const ok = await ZapparThree.permissionRequest();
+      if (!ok) { ZapparThree.permissionDeniedUI(); throw new Error('Camera permission denied'); }
+      camera?.start();
+      dbg('camera started / resumed');
+    }
+
+    // Дэлгэцийн координатыг NDC (-1..1) болгох
+    function toNDC(clientX, clientY){
+      const x =  (clientX / innerWidth ) * 2 - 1;
+      const y = -(clientY / innerHeight) * 2 + 1;
+      return [x, y];
+    }
+
+    // Gesture state
+    let dragging = false;
+    let baseScale = 1, startPinchDist = 0, startScale = 1;
+    let startTwistAngle = 0, baseYaw = 0; // Y эргэлтийн суурь
+    const touchMap = new Map();
+
+    function dist(a,b){ return Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY); }
+    function angle(a,b){
+      return Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
+    }
+
     (async function bootstrap(){
       ({ THREE, ZapparThree } = await window.__depsReady);
       if (!THREE || !ZapparThree) { alert('THREE/ZapparThree ачаалагдсангүй'); throw new Error('Deps'); }
-
       if (ZapparThree.browserIncompatible()) { ZapparThree.browserIncompatibleUI(); return; }
 
-      // Renderer
       renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false, powerPreference:'high-performance' });
       renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2)); // илүү цэвэр харагдуулна
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.domElement.classList.add('webgl');
       document.body.appendChild(renderer.domElement);
-      addEventListener('resize', ()=>renderer.setSize(innerWidth, innerHeight));
+      addEventListener('resize', ()=>{
+        renderer.setSize(innerWidth, innerHeight);
+        renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+      });
       ZapparThree.glContextSet(renderer.getContext());
 
-      // Камер + Scene
       camera = new ZapparThree.Camera({ userFacing:false });
       scene  = new THREE.Scene();
       scene.background = camera.backgroundTexture;
 
-      // Tracker + Anchor
       tracker = new ZapparThree.InstantWorldTracker();
       anchor  = new ZapparThree.InstantWorldAnchorGroup(camera, tracker);
       scene.add(anchor);
 
-      // Нийтэд ашиглах plane
-      plane = new THREE.Mesh(
-        new THREE.PlaneGeometry(1, 1),
-        new THREE.MeshBasicMaterial({ transparent:true, side: THREE.DoubleSide })
-      );
-      plane.rotation.x = -Math.PI/2; // шалан дээр хэвтүүлэв
+      const mat = new THREE.MeshBasicMaterial({
+        transparent:true,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+        alphaTest: 0.01 // ирмэгийн хар хүрээ багасгана
+      });
+      plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+      plane.rotation.x = -Math.PI/2; // шалан дээр
       anchor.add(plane);
 
-      // Render loop
       renderer.setAnimationLoop(()=>{
         if (!hasPlaced) {
-          // Байрлуулахаас өмнө 2м урд барина (камер дагаж хөдөлнө)
+          // Байрлуулахаас өмнө камерын өмнө барина
           tracker.setAnchorPoseFromCameraOffset(0,0,-2);
         }
         camera.updateFrame(renderer);
         renderer.render(scene, camera);
       });
 
-      // Апп foreground/background солигдоход камераа сэргээх
       document.addEventListener('visibilitychange', ()=>{
-        if (!document.hidden) {
-          // foreground болсон үед дахин start
-          try { camera.start(); } catch {}
-        } else {
-          try { camera.pause(); } catch {}
-        }
+        if (!document.hidden) { try{ camera.start(); }catch{} }
+        else { try{ camera.pause(); }catch{} }
       });
 
       dbg('bootstrap ready (press ▶ ЭХЛҮҮЛЭХ)');
     })();
 
-    // ▶ ЭХЛҮҮЛЭХ — permission (gesture дээр), интро-г бэлдээд “tap to place”
+    // ── Үндсэн урсгал ─────────────────────────────────────────────
     btnStart.addEventListener('click', async ()=>{
       try {
-        await ensureCamera(); // permission + camera.start()
+        await ensureCamera();
 
-        // Эх үүсвэрүүд
         setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
         setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
 
-        // Texture-үүд
-        texIntro = texIntro || videoTexture(vIntro);
-        texEx    = texEx    || videoTexture(vEx);
+        texIntro = texIntro || makeVideoTexture(vIntro);
+        texEx    = texEx    || makeVideoTexture(vEx);
 
-        // Интро-г идэвхжүүлнэ
         currentVideo = vIntro;
         plane.material.map = texIntro;
-        hasPlaced = false; // эхлээд -2м урд дагуулна
+        hasPlaced = false;
 
-        // metadata бэлэн болмогц plane-аа тааруулах
         if (vIntro.readyState >= 1) fitPlaneToVideo(vIntro);
         else vIntro.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vIntro), { once:true });
 
-        // Авто тоглуулаад болохгүй бол Unmute товч гаргана
         try {
           vIntro.muted = false;
           await vIntro.play();
@@ -193,32 +201,35 @@
           btnUnmute.style.display = 'inline-block';
         }
 
-        // Интро байрлуулахын тулд эхний “tap” хэрэгтэй
-        const placeIntro = ()=>{
-          hasPlaced = true;  // энэ мөчөөс эхлээд anchor дэлхий дээр тогтоно
-          removeEventListener('pointerdown', placeIntro);
-          dbg('intro placed');
+        // ЭХНИЙ ТАП: яг дарсан газар байрлуул
+        const placeAtTap = (cx, cy)=>{
+          const [nx, ny] = toNDC(cx, cy);
+          tracker.setAnchorPoseFromScreenCoordinates(nx, ny);
+          hasPlaced = true;
+          baseYaw = plane.rotation.y;
+          dbg('placed at tap');
         };
-        addEventListener('pointerdown', placeIntro, { once:true, passive:true });
+        const onceTap = (e)=>{
+          const p = e.changedTouches?.[0] || e;
+          placeAtTap(p.clientX, p.clientY);
+          removeEventListener('pointerdown', onceTap);
+        };
+        addEventListener('pointerdown', onceTap, { once:true, passive:true });
 
         startLy.style.display='none';
         dbg('intro playing (tap to place). When ended → menu');
 
-        // интро дуусмагц меню
         vIntro.onended = () => { menu.style.display = 'flex'; dbg('intro ended → menu'); };
       } catch (e) {
         console.error(e);
-        dbg('camera permission was denied or failed');
+        dbg('camera permission failed');
       }
     });
 
-    // Дууг асаах (autoplay блоклогдсон үед)
     btnUnmute.addEventListener('click', async ()=>{
-      try{ await currentVideo.play(); currentVideo.muted=false; btnUnmute.style.display='none'; }
-      catch{}
+      try{ await currentVideo.play(); currentVideo.muted=false; btnUnmute.style.display='none'; }catch{}
     });
 
-    // „Дасгал“ — permission-ээ ахин баталгаажуулж (хэрэв тасалдсан бол), дараа нь солин тоглуулна
     document.getElementById('btnExercise').addEventListener('click', async ()=>{
       menu.style.display = 'none';
       try { await ensureCamera(); } catch {}
@@ -226,24 +237,80 @@
       if (currentVideo) currentVideo.pause();
       currentVideo = vEx;
       plane.material.map = texEx;
-      hasPlaced = false; // дахин тавьдаг болгож байна
+      hasPlaced = false;
 
       if (vEx.readyState >= 1) fitPlaneToVideo(vEx);
       else vEx.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vEx), { once:true });
 
-      // эхний touch → байрлуулж, дуугаар тоглуулах
-      const onFirstTap = ()=>{
+      const placeAtTap = (cx, cy)=>{
+        const [nx, ny] = toNDC(cx, cy);
+        tracker.setAnchorPoseFromScreenCoordinates(nx, ny);
         hasPlaced = true;
+        baseYaw = plane.rotation.y;
+        dbg('exercise placed');
+      };
+      const onceTap = (e)=>{
+        const p = e.changedTouches?.[0] || e;
+        placeAtTap(p.clientX, p.clientY);
+        removeEventListener('pointerdown', onceTap);
         vEx.currentTime = 0;
         vEx.muted = false;
         vEx.play().catch(()=>{});
-        removeEventListener('pointerdown', onFirstTap);
-        dbg('exercise placed & playing');
       };
-      addEventListener('pointerdown', onFirstTap, { once:true, passive:true });
+      addEventListener('pointerdown', onceTap, { once:true, passive:true });
 
       dbg('exercise ready (tap to place & play)');
     });
+
+    // ── Жестүүд: drag / pinch / twist ────────────────────────────
+    addEventListener('pointerdown', (e)=>{
+      touchMap.set(e.pointerId, { clientX:e.clientX, clientY:e.clientY });
+      if (touchMap.size === 1 && hasPlaced) dragging = true;
+
+      if (touchMap.size === 2) {
+        const [a,b] = [...touchMap.values()];
+        startPinchDist = dist(a,b);
+        startScale = baseScale;
+        startTwistAngle = angle(a,b);
+      }
+    }, { passive:true });
+
+    addEventListener('pointermove', (e)=>{
+      if (!hasPlaced) return;
+      if (!touchMap.has(e.pointerId)) return;
+      touchMap.set(e.pointerId, { clientX:e.clientX, clientY:e.clientY });
+
+      if (touchMap.size === 1 && dragging) {
+        const t = [...touchMap.values()][0];
+        const [nx, ny] = toNDC(t.clientX, t.clientY);
+        tracker.setAnchorPoseFromScreenCoordinates(nx, ny); // нэг хуруугаар зөөх
+      }
+
+      if (touchMap.size === 2) {
+        const [a,b] = [...touchMap.values()];
+        // Pinch → scale
+        const d = dist(a,b);
+        const s = (d / Math.max(1, startPinchDist));
+        baseScale = THREE.MathUtils.clamp(startScale * s, 0.3, 3.0);
+        plane.scale.setScalar(baseScale);
+
+        // Twist → yaw (Y тэнхлэг)
+        const ang = angle(a,b);
+        const delta = ang - startTwistAngle;
+        plane.rotation.y = baseYaw + delta;
+      }
+    }, { passive:true });
+
+    addEventListener('pointerup', (e)=>{
+      touchMap.delete(e.pointerId);
+      if (touchMap.size < 1) dragging = false;
+      if (touchMap.size < 2) { baseYaw = plane.rotation.y; }
+    }, { passive:true });
+
+    addEventListener('pointercancel', (e)=>{
+      touchMap.delete(e.pointerId);
+      dragging = false;
+    }, { passive:true });
   </script>
 </body>
 </html>
