@@ -10,7 +10,6 @@
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
     canvas.webgl{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
 
-    /* ❗ Товчийг бүрмөсөн авсан — auto-start; зөвхөн fallback-overlay гарна */
     #tapToStart{position:fixed;inset:0;display:none;place-items:center;z-index:var(--z-ui);background:#000;cursor:pointer}
     #tapToStart .btn{padding:14px 18px;border:0;border-radius:14px;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
 
@@ -42,7 +41,7 @@
 <body>
   <div id="debug">DEBUG: booting…</div>
 
-  <!-- Fallback tap-overlay (хэрэгцээ гарвал л харагдана) -->
+  <!-- Tap overlay (эхлээд л харагдана) -->
   <div id="tapToStart"><button class="btn">▶ Камер нээх</button></div>
 
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
@@ -81,6 +80,7 @@
     let THREE, ZapparThree, renderer, camera, scene, tracker, anchor, plane;
     let hasPlaced = false;
     let texIntro, texEx, currentVideo;
+    let cameraStarted = false;
 
     // хэмжээ/эргүүлэлт
     let baseH = 0.9;               // м
@@ -93,12 +93,28 @@
       plane.position.y = (baseH * scaleFactor) / 2; // газарт тулгана
     }
 
-    async function ensureCamera() {
-      await window.__depsReady;
-      const ok = await ZapparThree.permissionRequest();
-      if (!ok) throw new Error('Camera permission denied');
-      camera?.start();
-      dbg('camera started');
+    async function initCamera() {
+      try {
+        dbg('requesting camera permission...');
+        
+        // Zappar permission request
+        const permissionGranted = await ZapparThree.permissionRequest();
+        if (!permissionGranted) {
+          throw new Error('Camera permission denied');
+        }
+        
+        dbg('permission granted, starting camera...');
+        
+        // Start the camera
+        await camera.start();
+        cameraStarted = true;
+        
+        dbg('camera started successfully');
+        return true;
+      } catch (error) {
+        dbg('camera init failed: ' + error.message);
+        throw error;
+      }
     }
 
     function videoTexture(el){
@@ -186,140 +202,232 @@
     addEventListener('pointerup', ()=>{ drag.active=false; });
 
     (async function bootstrap(){
-      ({ THREE, ZapparThree } = await window.__depsReady);
-      if (!THREE || !ZapparThree) { dbg('libs not loaded'); return; }
-      if (ZapparThree.browserIncompatible()) { ZapparThree.browserIncompatibleUI(); return; }
-
-      // Renderer
-      renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false, powerPreference:'high-performance' });
-      renderer.setSize(innerWidth, innerHeight);
-      renderer.domElement.classList.add('webgl');
-      document.body.appendChild(renderer.domElement);
-      addEventListener('resize', ()=>renderer.setSize(innerWidth, innerHeight));
-      ZapparThree.glContextSet(renderer.getContext());
-
-      // Camera + Scene
-      camera = new ZapparThree.Camera({ userFacing:false });
-      scene  = new THREE.Scene();
-      scene.background = camera.backgroundTexture;
-
-      // Tracker + Anchor
-      tracker = new ZapparThree.InstantWorldTracker();
-      anchor  = new ZapparThree.InstantWorldAnchorGroup(camera, tracker);
-      scene.add(anchor);
-
-      // Plane
-      plane = new THREE.Mesh(
-        new THREE.PlaneGeometry(1, 1),
-        new THREE.MeshBasicMaterial({ transparent:true, side: THREE.DoubleSide })
-      );
-      plane.rotation.set(0,0,0);
-      anchor.add(plane);
-
-      // Render loop
-      renderer.setAnimationLoop(()=>{
-        if (!hasPlaced) {
-          // preview: 2м урд, төвд, автоматаар эргэнэ
-          tracker.setAnchorPoseFromCameraOffset(0, 0, -2);
-          faceCameraYawOnly();
-          plane.rotation.y += spinSpeed;
+      try {
+        const { THREE: T, ZapparThree: Z } = await window.__depsReady;
+        THREE = T; ZapparThree = Z;
+        
+        if (!THREE || !ZapparThree) { 
+          dbg('libs not loaded'); 
+          return; 
         }
-        camera.updateFrame(renderer);
-        renderer.render(scene, camera);
-      });
+        
+        if (ZapparThree.browserIncompatible()) { 
+          ZapparThree.browserIncompatibleUI(); 
+          return; 
+        }
 
-      // App visibility
-      document.addEventListener('visibilitychange', ()=>{
-        if (!document.hidden) { try { camera.start(); } catch{} }
-        else { try { camera.pause(); } catch{} }
-      });
+        dbg('initializing AR engine...');
 
-      dbg('bootstrap ready → auto-start');
-      autoStart(); // ← шууд эхлүүлэх оролдлого
+        // Renderer
+        renderer = new THREE.WebGLRenderer({ 
+          antialias: true, 
+          alpha: false, 
+          powerPreference: 'high-performance' 
+        });
+        renderer.setSize(innerWidth, innerHeight);
+        renderer.domElement.classList.add('webgl');
+        document.body.appendChild(renderer.domElement);
+        
+        addEventListener('resize', () => {
+          renderer.setSize(innerWidth, innerHeight);
+          camera?.updateFrame(renderer);
+        });
+        
+        // Set GL context for Zappar
+        ZapparThree.glContextSet(renderer.getContext());
+
+        // Camera + Scene
+        camera = new ZapparThree.Camera({ 
+          userFacing: false,
+          rearCameraSource: 'default'
+        });
+        
+        scene = new THREE.Scene();
+        scene.background = camera.backgroundTexture;
+
+        // Tracker + Anchor
+        tracker = new ZapparThree.InstantWorldTracker();
+        anchor = new ZapparThree.InstantWorldAnchorGroup(camera, tracker);
+        scene.add(anchor);
+
+        // Plane
+        plane = new THREE.Mesh(
+          new THREE.PlaneGeometry(1, 1),
+          new THREE.MeshBasicMaterial({ 
+            transparent: true, 
+            side: THREE.DoubleSide,
+            alphaTest: 0.01
+          })
+        );
+        plane.rotation.set(0, 0, 0);
+        anchor.add(plane);
+
+        // Render loop
+        renderer.setAnimationLoop(() => {
+          if (cameraStarted) {
+            if (!hasPlaced) {
+              // preview: 2м урд, төвд, автоматаар эргэнэ
+              tracker.setAnchorPoseFromCameraOffset(0, 0, -2);
+              faceCameraYawOnly();
+              plane.rotation.y += spinSpeed;
+            }
+            camera.updateFrame(renderer);
+          }
+          renderer.render(scene, camera);
+        });
+
+        // App visibility
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden && cameraStarted) { 
+            try { camera.start(); } catch(e) { dbg('resume failed: ' + e.message); } 
+          } else if (cameraStarted) { 
+            try { camera.pause(); } catch(e) {} 
+          }
+        });
+
+        dbg('AR engine ready. Starting camera...');
+        
+        // Auto-start camera immediately
+        startAR();
+        
+      } catch (error) {
+        dbg('bootstrap failed: ' + error.message);
+      }
     })();
 
-    // ===== Auto-start урсгал =====
-    async function autoStart(){
+    // Start function with proper gesture handling
+    async function startAR() {
       try {
-        // эхлэнгүүт permission-ээ асууна
-        await ensureCamera();
-
-        // видео эх үүсвэрүүд
+        tapLay.style.display = 'none';
+        
+        dbg('starting AR experience...');
+        
+        // Initialize camera first
+        await initCamera();
+        
+        // Setup video sources
         setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
-        setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
+        setSources(vEx, EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
 
-        // textures
-        texIntro = texIntro || videoTexture(vIntro);
-        texEx    = texEx    || videoTexture(vEx);
+        // Create textures
+        texIntro = videoTexture(vIntro);
+        texEx = videoTexture(vEx);
 
-        // intro-г preview байдлаар
+        // Setup intro video
         currentVideo = vIntro;
         plane.material.map = texIntro;
         hasPlaced = false;
-        scaleFactor = 1.2; applyScale();
+        scaleFactor = 1.2; 
+        applyScale();
 
-        if (vIntro.readyState >= 1) fitPlaneToVideo(vIntro);
-        else vIntro.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vIntro), { once:true });
+        if (vIntro.readyState >= 1) {
+          fitPlaneToVideo(vIntro);
+        } else {
+          vIntro.addEventListener('loadedmetadata', () => fitPlaneToVideo(vIntro), { once: true });
+        }
 
-        // autoplay (sound policy-оос болж чимээгүй эхлүүлээд, шаардвал Unmute-г үзүүлнэ)
-        try { vIntro.muted = false; await vIntro.play(); btnUnmute.style.display='none'; }
-        catch { vIntro.muted = true; vIntro.play().catch(()=>{}); btnUnmute.style.display='inline-block'; }
+        // Try to play with sound, fallback to muted
+        try {
+          vIntro.muted = false;
+          await vIntro.play();
+          btnUnmute.style.display = 'none';
+        } catch {
+          vIntro.muted = true;
+          try {
+            await vIntro.play();
+            btnUnmute.style.display = 'inline-block';
+          } catch(e) {
+            dbg('video play failed: ' + e.message);
+          }
+        }
 
-        // эхний tap → anchor-г тогтоож preview-spin-ийг зогсооно
-        const place = ()=>{
-          hasPlaced = true; spinSpeed = 0;
-          removeEventListener('pointerdown', place);
-          dbg('intro placed');
+        // First tap places the anchor
+        const place = () => {
+          hasPlaced = true; 
+          spinSpeed = 0;
+          dbg('intro placed in world');
         };
-        addEventListener('pointerdown', place, { once:true, passive:true });
+        addEventListener('pointerdown', place, { once: true, passive: true });
 
-        vIntro.onended = ()=>{ menu.style.display='flex'; dbg('intro ended → menu'); };
-      } catch (e) {
-        // Хэрэв gesture шаардсан байвал fallback overlay гаргана
-        dbg('need user gesture (tap to start)');
+        // When intro ends, show menu
+        vIntro.onended = () => { 
+          menu.style.display = 'flex'; 
+          dbg('intro ended → menu shown'); 
+        };
+        
+        dbg('intro video ready (tap to place)');
+        
+      } catch (error) {
+        dbg('start failed: ' + error.message);
+        // Show tap overlay only if permission/camera failed
         tapLay.style.display = 'grid';
       }
     }
 
-    // Fallback: нэг удаагийн дэлгэц бүхэл tap → permission хүсээд эхлүүлнэ
-    tapLay.addEventListener('pointerdown', async ()=>{
-      tapLay.style.display='none';
-      try { await autoStart(); }
-      catch (e){ dbg('failed after tap: ' + (e?.message||e)); }
+    // Fallback: Only if auto-start failed, show tap to retry
+    tapLay.addEventListener('pointerdown', startAR);
+
+    // Unmute button
+    btnUnmute.addEventListener('click', async () => {
+      if (currentVideo) {
+        try {
+          currentVideo.muted = false;
+          await currentVideo.play();
+          btnUnmute.style.display = 'none';
+        } catch(e) {
+          dbg('unmute failed: ' + e.message);
+        }
+      }
     });
 
-    // Unmute
-    btnUnmute.addEventListener('click', async ()=>{
-      try{ await currentVideo.play(); currentVideo.muted=false; btnUnmute.style.display='none'; } catch {}
-    });
-
-    // „Дасгал“
-    document.getElementById('btnExercise').addEventListener('click', async ()=>{
-      menu.style.display = 'none';
+    // Exercise button
+    document.getElementById('btnExercise').addEventListener('click', async () => {
       try {
-        await ensureCamera();
-        if (currentVideo) currentVideo.pause();
+        menu.style.display = 'none';
+        
+        if (!cameraStarted) {
+          await initCamera();
+        }
+        
+        // Stop current video
+        if (currentVideo) {
+          currentVideo.pause();
+        }
+        
+        // Switch to exercise video
         currentVideo = vEx;
         plane.material.map = texEx;
-
+        
         hasPlaced = false;
         spinSpeed = 0.9 * Math.PI/180;
-        scaleFactor = 1.2; applyScale();
+        scaleFactor = 1.2; 
+        applyScale();
 
-        if (vEx.readyState >= 1) fitPlaneToVideo(vEx);
-        else vEx.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vEx), { once:true });
+        if (vEx.readyState >= 1) {
+          fitPlaneToVideo(vEx);
+        } else {
+          vEx.addEventListener('loadedmetadata', () => fitPlaneToVideo(vEx), { once: true });
+        }
 
-        const place2 = ()=>{
-          hasPlaced = true; spinSpeed = 0;
-          vEx.currentTime = 0; vEx.muted = false; vEx.play().catch(()=>{});
-          removeEventListener('pointerdown', place2);
+        // Place and play exercise
+        const place2 = () => {
+          hasPlaced = true; 
+          spinSpeed = 0;
+          vEx.currentTime = 0; 
+          vEx.muted = false; 
+          vEx.play().catch(e => {
+            vEx.muted = true;
+            vEx.play().catch(() => {});
+            btnUnmute.style.display = 'inline-block';
+          });
           dbg('exercise placed & playing');
         };
-        addEventListener('pointerdown', place2, { once:true, passive:true });
+        addEventListener('pointerdown', place2, { once: true, passive: true });
 
         dbg('exercise ready (tap to place & play)');
-      } catch (e) {
-        // дахин gesture шаардвал overlay-г түр гаргана
+        
+      } catch (error) {
+        dbg('exercise failed: ' + error.message);
         tapLay.style.display = 'grid';
       }
     });
