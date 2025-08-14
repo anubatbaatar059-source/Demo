@@ -139,24 +139,12 @@
 <script>
 /* ===== CONFIG ===== */
 const INTRO_WEBM_URL     = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
-const INTRO_MP4_URL      = "";
+const INTRO_MP4_URL      = ""; // iOS-д хэрэгтэй бол MP4 fallback тавина
 const EXERCISE_WEBM_URL  = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-const EXERCISE_MP4_URL   = "";
+const EXERCISE_MP4_URL   = ""; // iOS-д хэрэгтэй бол MP4 fallback тавина
 
 /* Хэрэв 90°/180°-аар эргэж харагдвал энд тохируул: 0, Math.PI/2, Math.PI */
 const VIDEO_ROT_Z = 0;
-
-/* 🎬 Интро шошго — 3 өөр шошго дарааллаар, эхлэлд харагдахгүй (цаг нь давхардахгүй) */
-const TAG_TIMELINE = [
-  // 1) ДАСГАЛ — (жишээ нь 20.5–22.8 сек)
-  { id:'ex', t:[20.5, 22.8], u:-0.18, v: 0.18, show:true },
-
-  // 2) ХУВЬ ХҮНИЙ ХӨГЖИЛ — (жишээ нь 30.5–33.2 сек)
-  { id:'gr', t:[30.5, 33.2], u: 0.26, v: 0.16, show:true },
-
-  // 3) МЭДЛЭГ — (жишээ нь 35.0–37.0 сек)
-  { id:'kn', t:[35.0, 37.0], u:-0.08, v: 0.02,  show:true },
-];
 
 const dbg=(m)=>document.getElementById('debug').textContent='DEBUG: '+m;
 const vIntro = document.getElementById('vidIntro');
@@ -165,6 +153,14 @@ const btnUnmute=document.getElementById('btnUnmute');
 const hint   = document.getElementById('hint');
 const tapLay = document.getElementById('tapToStart');
 const menu   = document.getElementById('menu');
+
+/* ====== Intro tags: Дасгал → Хувь хүний хөгжил → Мэдлэг (тус бүр ганц удаа) ====== */
+/* u,v = [-0.5..0.5], t = секунд; өөрийн видеоны цагтай тааруулж засаж болно */
+const TAG_TIMELINE = [
+  { id:'ex', t:[20.5, 22.8], u:-0.18, v: 0.18, show:true }, // ДАСГАЛ
+  { id:'gr', t:[30.5, 33.2], u: 0.26, v: 0.16, show:true }, // ХУВЬ ХҮНИЙ ХӨГЖИЛ
+  { id:'kn', t:[35.0, 37.0], u:-0.08, v: 0.02,  show:true }, // МЭДЛЭГ
+];
 
 const tagEls = {
   ex: document.getElementById('tagExercise'),
@@ -188,7 +184,6 @@ let texIntro, texEx, currentVideo, baseH=0.9;
 function applyScale(){
   if(!plane) return;
   plane.scale.set(scaleFactor, scaleFactor, 1);
-  // Төвд байрлуулах — y-г хөдөлгөхгүй:
   plane.position.set(0,0,0);
 }
 function fitPlaneToVideo(el){
@@ -200,8 +195,6 @@ function fitPlaneToVideo(el){
   applyScale();
 }
 function faceCameraNoRotate(){
-  // Камер луу чиглэсэн (yaw-only биш, бүр эргэлтгүй болгоно)
-  // Плэйныг тогтмол байрлалд байлгана (хэрэглэгч эргүүлж чадахгүй)
   plane.quaternion.copy(camera.quaternion);
   plane.rotation.z = VIDEO_ROT_Z;
 }
@@ -278,9 +271,9 @@ function updateIntroTags(){
     return arr.length ? arr[arr.length - 1] : null;
   };
 
-  const segEx = segOf('ex');
-  const segGr = segOf('gr');
-  const segKn = segOf('kn');
+  const segEx = segOf('ex'); // Дасгал
+  const segGr = segOf('gr'); // Хувь хүний хөгжил
+  const segKn = segOf('kn'); // Мэдлэг
 
   if (segEx){
     const w = worldToScreen(localOnPlane(segEx.u, segEx.v));
@@ -331,13 +324,13 @@ function updateIntroTags(){
 
   renderer.setAnimationLoop(()=>{
     // Төвд тогтмол байршуулна (preview + play)
-    tracker.setAnchorPoseFromCameraOffset(0,0,-1.5); // ⬅ Дэлгэцийн төвөөс 1.5м урд
+    tracker.setAnchorPoseFromCameraOffset(0,0,-1.5); // ⬅ Дэлгэцийн төвөөс ~1.5м урд
     faceCameraNoRotate(); // ⬅ ЭРГҮҮЛЭХГҮЙ, камер луу чиглэсэн
 
     camera.updateFrame(renderer);
     renderer.render(scene,camera);
 
-    // интро шошго
+    // Интро дээр шошго хөдөлгөөн
     if (currentVideo===vIntro) updateIntroTags();
   });
 
@@ -371,12 +364,11 @@ async function startIntroFlow(){
     hasPlaced=true; hint.style.display='block'; removeEventListener('pointerdown', place);
     try{ vIntro.muted=false; await vIntro.play(); btnUnmute.style.display='none'; }
     catch{ vIntro.muted=true; vIntro.play().catch(()=>{}); btnUnmute.style.display='inline-block'; }
+    // Шошгыг интро дээр идэвхжүүлнэ
     showTags = true;
     dbg('intro placed (center, scaled)');
   };
   addEventListener('pointerdown', place, {once:true, passive:true});
-  // Хэрэв хэрэглэгч tap хийлгүй бол fallback товчийг ашиглаж болно:
-  // tapLay.style.display='grid';
 
   vIntro.onended=()=>{
     showTags=false;
