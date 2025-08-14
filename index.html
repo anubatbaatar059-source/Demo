@@ -146,11 +146,15 @@ const EXERCISE_MP4_URL   = "";
 /* Хэрэв 90°/180°-аар эргэж харагдвал энд тохируул: 0, Math.PI/2, Math.PI */
 const VIDEO_ROT_Z = 0;
 
-/* 🎬 Интро шошгоны цагийн мөр — u,v нь [-0.5..0.5], t секунд */
+/* 🎬 Интро шошгоны цагийн мөр — u,v нь [-0.5..0.5], t секунд  */
+/*  ⏱ Эдгээр цагуудыг өөрийн видео дээрээ тааруулаарай.  */
 const TAG_TIMELINE = [
-  { id:'ex', t:[1.0, 3.2],  u:-0.35, v: 0.32, show:true },
-  { id:'ex', t:[3.2, 5.2],  u:-0.10, v: 0.40, show:true },
-  { id:'ex', t:[5.2, 6.0],  u:-0.10, v: 0.40, show:false },
+  // === ДАСГАЛ — таны улаан цэгүүдэд ойролцоо ===
+  { id:'ex', t:[20.0, 23.0], u:-0.18, v: 0.18, show:true },  // 1-р байрлал (зүүн- дээд орчим)
+  { id:'ex', t:[30.0, 33.0], u: 0.22, v: 0.20, show:true },  // 2-р байрлал (баруун- дээд орчим)
+  { id:'ex', t:[35.0, 37.0], u:-0.10, v: 0.02,  show:true }, // 3-р байрлал (зүүн, гарын доох)
+
+  // (хэрэв хэрэггүй бол доорх GR/KN-ийг устгаж болно)
   { id:'gr', t:[6.5, 8.2],  u: 0.33, v: 0.32, show:true },
   { id:'gr', t:[8.2,10.0],  u: 0.10, v: 0.05, show:true },
   { id:'gr', t:[10.0,10.6], u: 0.10, v: 0.05, show:false },
@@ -182,15 +186,14 @@ function setSources(el, webm, mp4=""){
 
 /* ===== AR Engine ===== */
 let THREE, ZT, renderer, camera, scene, tracker, anchor, plane;
-let hasPlaced=false, scaleFactor=1.35; // ⬅ анхны хэмжээг бага зэрэг том болгов
-const MIN_S=0.6, MAX_S=3;              // ⬅ доод/дээд томруулалт
+let hasPlaced=false, scaleFactor=1.35; // анхны хэмжээг бага зэрэг том
+const MIN_S=0.6, MAX_S=3;
 let texIntro, texEx, currentVideo, baseH=0.9;
 
 function applyScale(){
   if(!plane) return;
   plane.scale.set(scaleFactor, scaleFactor, 1);
-  // Төвд байрлуулах — y-г хөдөлгөхгүй:
-  plane.position.set(0,0,0);
+  plane.position.set(0,0,0); // төвд
 }
 function fitPlaneToVideo(el){
   const w=el.videoWidth||1280, h=el.videoHeight||720;
@@ -201,8 +204,7 @@ function fitPlaneToVideo(el){
   applyScale();
 }
 function faceCameraNoRotate(){
-  // Камер луу чиглэсэн (yaw-only биш, бүр эргэлтгүй болгоно)
-  // Плэйныг тогтмол байрлалд байлгана (хэрэглэгч эргүүлж чадахгүй)
+  // Камер луу чиглэсэн (эргүүлэхгүй)
   plane.quaternion.copy(camera.quaternion);
   plane.rotation.z = VIDEO_ROT_Z;
 }
@@ -222,33 +224,34 @@ function videoTexture(el){
 /* Gestures — зөвхөн SCALE, эргэлт үгүй */
 function hookGestures(){
   addEventListener('touchstart', ()=>{}, {passive:true});
+
+  let prevDist = 0;
   addEventListener('touchmove', e=>{
     if (!hasPlaced) return;
     if (e.touches.length===2){
-      const d=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
-      const k=d(e.touches[0],e.touches[1]);
-      const prev=Number(plane.dataset_prevDist||k);
-      if (prev>0){
-        const ratio = k/prev;
+      const d=Math.hypot(
+        e.touches[0].clientX-e.touches[1].clientX,
+        e.touches[0].clientY-e.touches[1].clientY
+      );
+      if (prevDist>0){
+        const ratio = d/prevDist;
         scaleFactor = Math.min(MAX_S, Math.max(MIN_S, scaleFactor*ratio));
         applyScale();
       }
-      plane.dataset_prevDist = k;
+      prevDist = d;
     }
   },{passive:true});
-  addEventListener('touchend', ()=>{ plane.dataset_prevDist=""; }, {passive:true});
+  addEventListener('touchend', ()=>{ prevDist=0; }, {passive:true});
 
-  // Mouse wheel zoom
   addEventListener('wheel', e=>{
     if(!hasPlaced) return;
     scaleFactor=Math.min(MAX_S,Math.max(MIN_S,scaleFactor*(e.deltaY>0?0.95:1.05)));
     applyScale();
   }, {passive:true});
-
-  // ➤ Drag/Pointer эргүүлэхийг бүрэн хаана:
-  addEventListener('pointerdown', e=>{ /* no-rotate */ });
-  addEventListener('pointermove', e=>{ /* no-rotate */ });
-  addEventListener('pointerup',   e=>{ /* no-rotate */ });
+  // эргүүлэхийг бүрэн хаана
+  addEventListener('pointerdown', ()=>{});
+  addEventListener('pointermove', ()=>{});
+  addEventListener('pointerup',   ()=>{});
 }
 
 /* --- 3D → 2D проекц (плэйн дотор байрлуулах) --- */
@@ -267,6 +270,51 @@ function localOnPlane(u,v){ // u,v in [-0.5..0.5]
   const pt = new THREE.Vector3(u*w*0.5, v*h*0.5, 0);
   return plane.localToWorld(pt);
 }
+
+/* ====== CALIBRATE MODE (C дарж ON/OFF) — интро дээр цэг товшоод u,v авах ====== */
+let CALIB_ON = false;
+const probe = document.createElement('div');
+probe.style.cssText = 'position:fixed;width:10px;height:10px;border-radius:50%;background:#ff3355;left:-100px;top:-100px;z-index:9999;';
+document.body.appendChild(probe);
+const raycaster = new THREE.Raycaster();
+
+function uvAtScreen(x, y) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const ndc = new THREE.Vector2(
+    ((x - rect.left) / rect.width) * 2 - 1,
+    -((y - rect.top) / rect.height) * 2 + 1
+  );
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObject(plane, false);
+  if (!hits.length) return null;
+
+  const local = plane.worldToLocal(hits[0].point.clone());
+  const w = plane.geometry.parameters.width;
+  const h = plane.geometry.parameters.height;
+
+  const u = (local.x / (w * 0.5));
+  const v = (local.y / (h * 0.5));
+  return { u: Math.max(-0.5, Math.min(0.5, u)),
+           v: Math.max(-0.5, Math.min(0.5, v)),
+           screen:{x, y} };
+}
+
+addEventListener('keydown', e=>{
+  if (e.key.toLowerCase() === 'c'){
+    CALIB_ON = !CALIB_ON;
+    dbg('Calibrate: ' + (CALIB_ON ? 'ON' : 'OFF'));
+    if (!CALIB_ON){ probe.style.left='-100px'; probe.style.top='-100px'; }
+  }
+});
+addEventListener('pointerdown', e=>{
+  if (!CALIB_ON) return;
+  const uv = uvAtScreen(e.clientX, e.clientY);
+  if (!uv) return;
+  probe.style.left = (uv.screen.x - 5) + 'px';
+  probe.style.top  = (uv.screen.y - 5) + 'px';
+  dbg(`Calib u=${uv.u.toFixed(3)} v=${uv.v.toFixed(3)}  (copy these to TAG_TIMELINE)`);
+});
+/* ====== END CALIBRATE ====== */
 
 /* Интро шошго */
 let showTags = false;
@@ -331,14 +379,13 @@ function updateIntroTags(){
   hookGestures();
 
   renderer.setAnimationLoop(()=>{
-    // Төвд тогтмол байршуулна (preview + play)
-    tracker.setAnchorPoseFromCameraOffset(0,0,-1.5); // ⬅ Дэлгэцийн төвөөс 1.5м урд
-    faceCameraNoRotate(); // ⬅ ЭРГҮҮЛЭХГҮЙ, камер луу чиглэсэн
+    // Төвд тогтмол байршуулна
+    tracker.setAnchorPoseFromCameraOffset(0,0,-1.5);
+    faceCameraNoRotate();
 
     camera.updateFrame(renderer);
     renderer.render(scene,camera);
 
-    // интро шошго
     if (currentVideo===vIntro) updateIntroTags();
   });
 
@@ -359,15 +406,13 @@ async function startIntroFlow(){
   currentVideo=vIntro;
   plane.material.map=texIntro;
 
-  // Анхны байрлал/хэмжээ
   hasPlaced=false;
-  scaleFactor=1.35; // бага зэрэг том
+  scaleFactor=1.35; // анхны хэмжээ
   applyScale();
 
   if (vIntro.readyState>=1) fitPlaneToVideo(vIntro);
   else vIntro.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vIntro), {once:true});
 
-  // Эхний tap → интро play (дуу policy)
   const place=async ()=>{
     hasPlaced=true; hint.style.display='block'; removeEventListener('pointerdown', place);
     try{ vIntro.muted=false; await vIntro.play(); btnUnmute.style.display='none'; }
@@ -376,8 +421,6 @@ async function startIntroFlow(){
     dbg('intro placed (center, scaled)');
   };
   addEventListener('pointerdown', place, {once:true, passive:true});
-  // Хэрэв хэрэглэгч tap хийлгүй бол fallback товч гарна:
-  // tapLay.style.display='grid'; — одоогоор нуусан
 
   vIntro.onended=()=>{
     showTags=false;
@@ -397,7 +440,7 @@ document.getElementById('btnRestart').addEventListener('click', async ()=>{
   await startIntroFlow();
 });
 
-/* === Exercise: шууд байршуулж, шууд тоглуулах (center, no-rotate) === */
+/* === Exercise: шууд байршуулж, шууд тоглуулах === */
 document.getElementById('mExercise').addEventListener('click', async ()=>{
   closeMenu();
   try{ await ensureCamera(); }catch{}
@@ -409,7 +452,6 @@ document.getElementById('mExercise').addEventListener('click', async ()=>{
   if (vEx.readyState>=1) fitPlaneToVideo(vEx);
   else await new Promise(r=>vEx.addEventListener('loadedmetadata', ()=>{fitPlaneToVideo(vEx); r();}, {once:true}));
 
-  // Анхны байрлал/хэмжээ (төв, том)
   scaleFactor=1.35;
   applyScale();
   hasPlaced=true;
