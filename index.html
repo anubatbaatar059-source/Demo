@@ -105,7 +105,7 @@
           <div class="icon">🏃</div>
           <div>
             <div class="ttl">Дасгал</div>
-            <div style="opacity:.8;font-size:12px">Шууд байршуулж тоглуулах</div>
+            <div style="opacity:.8;font-size:12px">Video тоглуулах</div>
           </div>
         </div>
         <div class="card" id="mGrowth">
@@ -130,7 +130,7 @@
     </div>
   </div>
 
-  <div id="hint">Pinch = том/жижиг (эргүүлэх боломжгүй)</div>
+  <!-- <div id="hint">Pinch = том/жижиг (эргүүлэх боломжгүй)</div> -->
 
   <!-- Hidden videos -->
   <video id="vidIntro" playsinline preload="auto" style="display:none" crossorigin="anonymous"></video>
@@ -140,7 +140,7 @@
 /* ===== CONFIG ===== */
 const INTRO_WEBM_URL     = "https://ariukcs1a.github.io/video/Video_01_alpha_audio.webm";
 const INTRO_MP4_URL      = "";
-const EXERCISE_WEBM_URL  = "https://ariukcs1a.github.io/video/Video_02_small.webm";
+const EXERCISE_WEBM_URL  = "https://ariukcs1a.github.io/video/Video%2002_clean_100MB.webm";
 const EXERCISE_MP4_URL   = "";
 
 /* Хэрэв 90°/180°-аар эргэж харагдвал энд тохируул: 0, Math.PI/2, Math.PI */
@@ -151,16 +151,16 @@ const VIDEO_ROT_Z = 0;
 const TAG_TIMELINE = [
   // === ДАСГАЛ (Intro дээр улаан тэмдэглэсэн 3 цэг) ===
   { id:'ex', t:[20.5, 22.8], u:-0.18, v: 0.18, show:true }, // 0:20–0:23 орчим, зүүн дээд
-  { id:'ex', t:[30.5, 33.2], u: 0.26, v: 0.16, show:true }, // 0:31–0:33 орчим, баруун дээд (гарны үзүүр)
-  { id:'ex', t:[35.0, 37.0], u:-0.08, v: 0.02, show:true }, // 0:35–0:37 орчим, зүүн тал, гарын доогуур
+  { id:'gr', t:[30.5, 33.2], u: 0.26, v: 0.16, show:true }, // 0:31–0:33 орчим, баруун дээд (гарны үзүүр)
+  { id:'kn', t:[35.0, 37.0], u:-0.08, v: 0.02, show:true }, // 0:35–0:37 орчим, зүүн тал, гарын доогуур
 
-  // Хэрэв Growth/Knowledge интро дээр хэрэггүй бол доорхийг устгаж болно
-  { id:'gr', t:[6.5, 8.2],  u: 0.33, v: 0.32, show:true },
-  { id:'gr', t:[8.2,10.0],  u: 0.10, v: 0.05, show:true },
-  { id:'gr', t:[10.0,10.6], u: 0.10, v: 0.05, show:false },
-  { id:'kn', t:[10.8,12.5], u: 0.00, v:-0.30, show:true },
-  { id:'kn', t:[12.5,14.0], u: 0.28, v:-0.28, show:true },
-  { id:'kn', t:[14.0,14.6], u: 0.28, v:-0.28, show:false },
+  // // Хэрэв Growth/Knowledge интро дээр хэрэггүй бол доорхийг устгаж болно
+  // { id:'gr', t:[6.5, 8.2],  u: 0.33, v: 0.32, show:true },
+  // { id:'gr', t:[8.2,10.0],  u: 0.10, v: 0.05, show:true },
+  // { id:'gr', t:[10.0,10.6], u: 0.10, v: 0.05, show:false },
+  // { id:'kn', t:[10.8,12.5], u: 0.00, v:-0.30, show:true },
+  // { id:'kn', t:[12.5,14.0], u: 0.28, v:-0.28, show:true },
+  // { id:'kn', t:[14.0,14.6], u: 0.28, v:-0.28, show:false },
 ];
 
 const dbg=(m)=>document.getElementById('debug').textContent='DEBUG: '+m;
