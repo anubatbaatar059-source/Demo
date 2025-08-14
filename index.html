@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Intro → Меню → Дасгал (Center start, No-Rotate, Pinch Zoom)</title>
+  <title>WebAR — Intro → Меню → Дасгал (Stable Play, iOS Fallback, Pinch Zoom)</title>
   <style>
-    :root { --z-ui:5; --z-menu:6; --z-debug:20 }
+    :root { --z-ui:5; --z-menu:6; --z-debug:20; --z-loading:7 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
     canvas.webgl{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
 
@@ -21,10 +21,11 @@
 
     /* Tap fallback */
     #tapToStart{position:fixed;inset:0;display:none;place-items:center;background:#000;z-index:var(--z-ui)}
+    #tapToStart .btn{font-size:16px}
 
     /* ===== Intro overlay tags (NOT clickable) ===== */
     #overlayTags{
-      position:fixed; inset:0; z-index:var(--z-ui); pointer-events:none; /* интрод дарж болохгүй */
+      position:fixed; inset:0; z-index:var(--z-ui); pointer-events:none;
     }
     .tag{
       position:absolute; transform:translate(-50%,-50%);
@@ -72,6 +73,15 @@
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
     @keyframes popIn{to{opacity:1; transform:scale(1)}}
     @keyframes slideUp{to{opacity:1; transform:translateY(0)}}
+
+    /* Loading overlay */
+    #loading{
+      position:fixed; inset:0; display:none; place-items:center;
+      z-index:var(--z-loading); background:rgba(0,0,0,.45); color:#fff; font-weight:700
+    }
+    #loading .box{
+      padding:14px 18px; border-radius:12px; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.2)
+    }
   </style>
 
   <!-- Libs -->
@@ -87,6 +97,7 @@
 
   <div id="tapToStart"><button class="btn">▶ Камер нээх</button></div>
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
+  <div id="loading"><div class="box">⏳ Видеог бэлдэж байна…</div></div>
 
   <!-- Intro overlay tags -->
   <div id="overlayTags">
@@ -130,8 +141,6 @@
     </div>
   </div>
 
-  <!-- <div id="hint">Pinch = том/жижиг (эргүүлэх боломжгүй)</div> -->
-
   <!-- Hidden videos -->
   <video id="vidIntro" playsinline preload="auto" style="display:none" crossorigin="anonymous"></video>
   <video id="vidExercise" playsinline preload="auto" loop style="display:none" crossorigin="anonymous"></video>
@@ -139,28 +148,18 @@
 <script>
 /* ===== CONFIG ===== */
 const INTRO_WEBM_URL     = "https://ariukcs1a.github.io/video/Video_01_alpha_audio.webm";
-const INTRO_MP4_URL      = "";
+const INTRO_MP4_URL      = ""; // Хэрэв iOS-д MP4 интро хэрэгтэй бол энд URL тавина
 const EXERCISE_WEBM_URL  = "https://ariukcs1a.github.io/video/Video%2002_clean_100MB.webm";
-const EXERCISE_MP4_URL   = "";
+const EXERCISE_MP4_URL   = ""; // iOS fallback (H.264/AAC) файлын URL-аа энд тавиарай
 
-/* Хэрэв 90°/180°-аар эргэж харагдвал энд тохируул: 0, Math.PI/2, Math.PI */
+/* Видеог 90°/180°-аар эргэчихвэл энд тохируул: 0, Math.PI/2, Math.PI */
 const VIDEO_ROT_Z = 0;
 
-/* 🎬 Интро шошгоны цагийн мөр — u,v нь [-0.5..0.5], t секунд  */
-/* ⛳️ Дараах 3 segment нь таны улаан тэмдэглэсэн байрлалд тааруулсан (ойролцоогоор). */
+/* 🎬 Интро шошго — цаг ба байрлал (u,v ∈ [-0.5..0.5]) */
 const TAG_TIMELINE = [
-  // === ДАСГАЛ (Intro дээр улаан тэмдэглэсэн 3 цэг) ===
-  { id:'ex', t:[20.5, 22.8], u:-0.18, v: 0.18, show:true }, // 0:20–0:23 орчим, зүүн дээд
-  { id:'gr', t:[30.5, 33.2], u: 0.26, v: 0.16, show:true }, // 0:31–0:33 орчим, баруун дээд (гарны үзүүр)
-  { id:'kn', t:[35.0, 37.0], u:-0.08, v: 0.02, show:true }, // 0:35–0:37 орчим, зүүн тал, гарын доогуур
-
-  // // Хэрэв Growth/Knowledge интро дээр хэрэггүй бол доорхийг устгаж болно
-  // { id:'gr', t:[6.5, 8.2],  u: 0.33, v: 0.32, show:true },
-  // { id:'gr', t:[8.2,10.0],  u: 0.10, v: 0.05, show:true },
-  // { id:'gr', t:[10.0,10.6], u: 0.10, v: 0.05, show:false },
-  // { id:'kn', t:[10.8,12.5], u: 0.00, v:-0.30, show:true },
-  // { id:'kn', t:[12.5,14.0], u: 0.28, v:-0.28, show:true },
-  // { id:'kn', t:[14.0,14.6], u: 0.28, v:-0.28, show:false },
+  { id:'ex', t:[20.5, 22.8], u:-0.18, v: 0.18, show:true },
+  { id:'gr', t:[30.5, 33.2], u: 0.26, v: 0.16, show:true },
+  { id:'kn', t:[35.0, 37.0], u:-0.08, v: 0.02, show:true },
 ];
 
 const dbg=(m)=>document.getElementById('debug').textContent='DEBUG: '+m;
@@ -170,6 +169,7 @@ const btnUnmute=document.getElementById('btnUnmute');
 const hint   = document.getElementById('hint');
 const tapLay = document.getElementById('tapToStart');
 const menu   = document.getElementById('menu');
+const loading= document.getElementById('loading');
 
 const tagEls = {
   ex: document.getElementById('tagExercise'),
@@ -178,22 +178,37 @@ const tagEls = {
 };
 
 function setSources(el, webm, mp4=""){
-  el.crossOrigin="anonymous"; el.setAttribute('playsinline',''); el.innerHTML="";
-  if (webm){ const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1); }
-  if (mp4){  const s2=document.createElement('source'); s2.src=mp4;  s2.type='video/mp4'; el.appendChild(s2); }
+  el.crossOrigin="anonymous";
+  el.setAttribute('playsinline','');
+  el.setAttribute('preload','auto');
+  el.innerHTML="";
+  // iOS-т WebM тааруухан тул MP4 байвал эхлээд MP4-ийг тавих боломжтой
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (isIOS && mp4) {
+    const s2=document.createElement('source');
+    s2.src=mp4;  s2.type='video/mp4';
+    el.appendChild(s2);
+    if (webm) { // webm-ийг дараагийн эх сурвалж болгож болно (ихэвчлэн ашиглагдахгүй)
+      const s1=document.createElement('source');
+      s1.src=webm; s1.type='video/webm; codecs="vp8,opus"';
+      el.appendChild(s1);
+    }
+  } else {
+    if (webm){ const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1); }
+    if (mp4){  const s2=document.createElement('source'); s2.src=mp4;  s2.type='video/mp4'; el.appendChild(s2); }
+  }
   el.load();
 }
 
 /* ===== AR Engine ===== */
 let THREE, ZT, renderer, camera, scene, tracker, anchor, plane;
-let hasPlaced=false, scaleFactor=1.35; // ⬅ анхны хэмжээг бага зэрэг том болгов
-const MIN_S=0.6, MAX_S=3;              // ⬅ доод/дээд томруулалт
+let hasPlaced=false, scaleFactor=1.35;
+const MIN_S=0.6, MAX_S=3;
 let texIntro, texEx, currentVideo, baseH=0.9;
 
 function applyScale(){
   if(!plane) return;
   plane.scale.set(scaleFactor, scaleFactor, 1);
-  // Төвд байрлуулах — y-г хөдөлгөхгүй:
   plane.position.set(0,0,0);
 }
 function fitPlaneToVideo(el){
@@ -205,8 +220,6 @@ function fitPlaneToVideo(el){
   applyScale();
 }
 function faceCameraNoRotate(){
-  // Камер луу чиглэсэн (yaw-only биш, бүр эргэлтгүй болгоно)
-  // Плэйныг тогтмол байрлалд байлгана (хэрэглэгч эргүүлж чадахгүй)
   plane.quaternion.copy(camera.quaternion);
   plane.rotation.z = VIDEO_ROT_Z;
 }
@@ -223,7 +236,7 @@ function videoTexture(el){
   return t;
 }
 
-/* Gestures — зөвхөн SCALE, эргэлт үгүй */
+/* Gestures — зөвхөн SCALE */
 function hookGestures(){
   addEventListener('touchstart', ()=>{}, {passive:true});
   addEventListener('touchmove', e=>{
@@ -242,20 +255,15 @@ function hookGestures(){
   },{passive:true});
   addEventListener('touchend', ()=>{ plane.dataset_prevDist=""; }, {passive:true});
 
-  // Mouse wheel zoom
+  // Wheel zoom
   addEventListener('wheel', e=>{
     if(!hasPlaced) return;
     scaleFactor=Math.min(MAX_S,Math.max(MIN_S,scaleFactor*(e.deltaY>0?0.95:1.05)));
     applyScale();
   }, {passive:true});
-
-  // ➤ Drag/Pointer эргүүлэхийг бүрэн хаана:
-  addEventListener('pointerdown', e=>{ /* no-rotate */ });
-  addEventListener('pointermove', e=>{ /* no-rotate */ });
-  addEventListener('pointerup',   e=>{ /* no-rotate */ });
 }
 
-/* --- 3D → 2D проекц (плэйн дотор байрлуулах) --- */
+/* --- 3D → 2D проекц --- */
 function worldToScreen(v){
   if (!renderer || !camera) return {x:-9999, y:-9999};
   const rect = renderer.domElement.getBoundingClientRect();
@@ -264,7 +272,7 @@ function worldToScreen(v){
   const y = (-p.y* 0.5 + 0.5) * rect.height + rect.top;
   return {x,y};
 }
-function localOnPlane(u,v){ // u,v in [-0.5..0.5]
+function localOnPlane(u,v){
   if (!plane || !plane.geometry || !plane.geometry.parameters) return new THREE.Vector3(0,0,0);
   const w = plane.geometry.parameters.width;
   const h = plane.geometry.parameters.height;
@@ -306,6 +314,49 @@ function updateIntroTags(){
   } else tagEls.kn.classList.remove('show');
 }
 
+/* ==== Video play helpers ==== */
+function waitForCanPlay(video, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    let done=false;
+    const onReady = () => { if(done) return; done=true; cleanup(); resolve(); };
+    const onError = () => { if(done) return; done=true; cleanup(); reject(video.error || new Error('video error')); };
+    const onTimeout = () => { if(done) return; done=true; cleanup(); reject(new Error('canplay timeout')); };
+    const cleanup = () => {
+      video.removeEventListener('canplay', onReady);
+      video.removeEventListener('canplaythrough', onReady);
+      video.removeEventListener('error', onError);
+      clearTimeout(timer);
+    };
+    video.addEventListener('canplay', onReady, { once:true });
+    video.addEventListener('canplaythrough', onReady, { once:true });
+    video.addEventListener('error', onError, { once:true });
+    const timer = setTimeout(onTimeout, timeoutMs);
+  });
+}
+
+async function safePlay(video) {
+  loading.style.display='grid'; // ⏳
+  // эхлээд mute-тай autoplay-ыг оролдоно
+  video.muted = true;
+  try {
+    await waitForCanPlay(video, 20000);
+    await video.play();
+    loading.style.display='none';
+    return true;
+  } catch (e1) {
+    // дахин оролдлого
+    try {
+      await video.play();
+      loading.style.display='none';
+      return true;
+    } catch (e2) {
+      loading.style.display='none';
+      dbg('play failed: '+(e2?.message || e2));
+      return false;
+    }
+  }
+}
+
 /* Bootstrap */
 (async function bootstrap(){
   const libs = await window.__depsReady;
@@ -334,15 +385,21 @@ function updateIntroTags(){
 
   hookGestures();
 
+  // Debug video events
+  [vIntro, vEx].forEach(v=>{
+    ['error','stalled','suspend','waiting','canplay','canplaythrough','playing','pause','loadedmetadata'].forEach(ev=>{
+      v.addEventListener(ev, ()=>console.log(`${v.id} ${ev} rs=${v.readyState} ns=${v.networkState}`));
+    });
+  });
+
   renderer.setAnimationLoop(()=>{
-    // Төвд тогтмол байршуулна (preview + play)
-    tracker.setAnchorPoseFromCameraOffset(0,0,-1.5); // ⬅ Дэлгэцийн төвөөс 1.5м урд
-    faceCameraNoRotate(); // ⬅ ЭРГҮҮЛЭХГҮЙ, камер луу чиглэсэн
+    // Төвд тогтмол байршуулна
+    tracker.setAnchorPoseFromCameraOffset(0,0,-1.5);
+    faceCameraNoRotate();
 
     camera.updateFrame(renderer);
     renderer.render(scene,camera);
 
-    // интро шошго
     if (currentVideo===vIntro) updateIntroTags();
   });
 
@@ -365,23 +422,28 @@ async function startIntroFlow(){
 
   // Анхны байрлал/хэмжээ
   hasPlaced=false;
-  scaleFactor=1.35; // бага зэрэг том
+  scaleFactor=1.35;
   applyScale();
 
   if (vIntro.readyState>=1) fitPlaneToVideo(vIntro);
   else vIntro.addEventListener('loadedmetadata', ()=>fitPlaneToVideo(vIntro), {once:true});
 
-  // Эхний tap → интро play (дуу policy)
+  // Эхний tap → интро play
   const place=async ()=>{
-    hasPlaced=true; hint.style.display='block'; removeEventListener('pointerdown', place);
-    try{ vIntro.muted=false; await vIntro.play(); btnUnmute.style.display='none'; }
-    catch{ vIntro.muted=true; vIntro.play().catch(()=>{}); btnUnmute.style.display='inline-block'; }
+    hasPlaced=true;
+    removeEventListener('pointerdown', place);
+    const ok = await safePlay(vIntro);
+    if (!ok) {
+      vIntro.muted=true;
+      vIntro.play().catch(()=>{});
+      btnUnmute.style.display='inline-block';
+    } else {
+      btnUnmute.style.display='none';
+    }
     showTags = true;
-    dbg('intro placed (center, scaled)');
+    dbg('intro placed & playing');
   };
   addEventListener('pointerdown', place, {once:true, passive:true});
-  // Хэрэв хэрэглэгч tap хийлгүй бол fallback товч гарна:
-  // tapLay.style.display='grid'; — одоогоор нуусан
 
   vIntro.onended=()=>{
     showTags=false;
@@ -401,28 +463,31 @@ document.getElementById('btnRestart').addEventListener('click', async ()=>{
   await startIntroFlow();
 });
 
-/* === Exercise: шууд байршуулж, шууд тоглуулах (center, no-rotate) === */
+/* === Exercise === */
 document.getElementById('mExercise').addEventListener('click', async ()=>{
   closeMenu();
   try{ await ensureCamera(); }catch{}
-  if (currentVideo) currentVideo.pause();
+  if (currentVideo) try { currentVideo.pause(); } catch {}
+
+  // Source-аа тавина (iOS бол MP4 байгаа тохиолдолд автоматаар MP4 сонгоно)
+  setSources(vEx, EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
 
   currentVideo=vEx;
-  plane.material.map=texEx;
-
   if (vEx.readyState>=1) fitPlaneToVideo(vEx);
-  else await new Promise(r=>vEx.addEventListener('loadedmetadata', ()=>{fitPlaneToVideo(vEx); r();}, {once:true}));
+  else await new Promise(r=>vEx.addEventListener('loadedmetadata', ()=>{fitPlaneToVideo(vEx); r();},{once:true}));
 
-  // Анхны байрлал/хэмжээ (төв, том)
+  plane.material.map = texEx || (texEx = videoTexture(vEx));
+
+  // Анхны байрлал/хэмжээ
   scaleFactor=1.35;
   applyScale();
   hasPlaced=true;
-  hint.style.display='block';
 
-  try{ vEx.currentTime=0; vEx.muted=false; await vEx.play(); btnUnmute.style.display='none'; }
-  catch{ vEx.muted=true; vEx.play().catch(()=>{}); btnUnmute.style.display='inline-block'; }
+  vEx.currentTime=0;
+  const ok = await safePlay(vEx);
+  btnUnmute.style.display = ok ? 'none' : 'inline-block';
 
-  dbg('exercise placed center (no-rotate) & playing');
+  dbg('exercise placed center (no-rotate) & trying to play');
 });
 
 /* Coming soon placeholders */
@@ -431,7 +496,13 @@ document.getElementById('mGrowth').addEventListener('click', ()=>notifySoon('Х�
 document.getElementById('mKnowledge').addEventListener('click', ()=>notifySoon('Мэдлэг'));
 
 /* Unmute */
-btnUnmute.addEventListener('click', async ()=>{ try{ await currentVideo.play(); currentVideo.muted=false; btnUnmute.style.display='none'; }catch{} });
+btnUnmute.addEventListener('click', async ()=>{
+  try{
+    currentVideo.muted=false;
+    await currentVideo.play();
+    btnUnmute.style.display='none';
+  }catch(e){ dbg('unmute failed'); }
+});
 
 /* Tap fallback */
 tapLay.addEventListener('pointerdown', async ()=>{
