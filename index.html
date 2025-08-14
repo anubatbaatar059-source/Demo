@@ -22,22 +22,6 @@
     /* Tap fallback */
     #tapToStart{position:fixed;inset:0;display:none;place-items:center;background:#000;z-index:var(--z-ui)}
 
-    /* ===== Intro overlay tags (NOT clickable) ===== */
-    #overlayTags{
-      position:fixed; inset:0; z-index:var(--z-ui); pointer-events:none; /* интрод дарж болохгүй */
-    }
-    .tag{
-      position:absolute; transform:translate(-50%,-50%);
-      padding:10px 14px; border-radius:12px; color:#fff;
-      background:linear-gradient(180deg, rgba(0,0,0,.65), rgba(0,0,0,.45));
-      border:1px solid rgba(255,255,255,.25); box-shadow:0 10px 30px rgba(0,0,0,.35);
-      font-weight:800; letter-spacing:.2px; opacity:0;
-      transition:opacity .25s ease, left .35s ease, top .35s ease, transform .35s ease;
-      white-space:nowrap; backdrop-filter:blur(4px);
-    }
-    .tag.show{ opacity:1; }
-    .tag.small{ font-size:12px; padding:8px 12px; font-weight:700 }
-
     /* ==== Animated Menu ==== */
     #menu{
       position:fixed; inset:0; display:none; align-items:center; justify-content:center;
@@ -88,13 +72,6 @@
   <div id="tapToStart"><button class="btn">▶ Камер нээх</button></div>
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
 
-  <!-- Intro overlay tags -->
-  <div id="overlayTags">
-    <div id="tagExercise"  class="tag">ДАСГАЛ</div>
-    <div id="tagGrowth"    class="tag small">ХУВЬ ХҮНИЙ ХӨГЖИЛ</div>
-    <div id="tagKnowledge" class="tag">МЭДЛЭГ</div>
-  </div>
-
   <!-- Animated Menu -->
   <div id="menu">
     <div class="menu-panel">
@@ -139,9 +116,9 @@
 <script>
 /* ===== CONFIG ===== */
 const INTRO_WEBM_URL     = "https://batbaatar-anu.github.io/my-ar-host/output_alpha_audio.webm";
-const INTRO_MP4_URL      = ""; // iOS-д хэрэгтэй бол MP4 fallback тавина
+const INTRO_MP4_URL      = ""; // (хэрэв хэрэгтэй бол iOS-д зориулж MP4 тавина)
 const EXERCISE_WEBM_URL  = "https://batbaatar-anu.github.io/my-ar-host/dasgal.webm";
-const EXERCISE_MP4_URL   = ""; // iOS-д хэрэгтэй бол MP4 fallback тавина
+const EXERCISE_MP4_URL   = ""; // (хэрэв хэрэгтэй бол iOS-д зориулж MP4 тавина)
 
 /* Хэрэв 90°/180°-аар эргэж харагдвал энд тохируул: 0, Math.PI/2, Math.PI */
 const VIDEO_ROT_Z = 0;
@@ -153,20 +130,6 @@ const btnUnmute=document.getElementById('btnUnmute');
 const hint   = document.getElementById('hint');
 const tapLay = document.getElementById('tapToStart');
 const menu   = document.getElementById('menu');
-
-/* ====== Intro tags: Дасгал → Хувь хүний хөгжил → Мэдлэг (тус бүр ганц удаа) ====== */
-/* u,v = [-0.5..0.5], t = секунд; өөрийн видеоны цагтай тааруулж засаж болно */
-const TAG_TIMELINE = [
-  { id:'ex', t:[20.5, 22.8], u:-0.18, v: 0.18, show:true }, // ДАСГАЛ
-  { id:'gr', t:[30.5, 33.2], u: 0.26, v: 0.16, show:true }, // ХУВЬ ХҮНИЙ ХӨГЖИЛ
-  { id:'kn', t:[35.0, 37.0], u:-0.08, v: 0.02,  show:true }, // МЭДЛЭГ
-];
-
-const tagEls = {
-  ex: document.getElementById('tagExercise'),
-  gr: document.getElementById('tagGrowth'),
-  kn: document.getElementById('tagKnowledge'),
-};
 
 function setSources(el, webm, mp4=""){
   el.crossOrigin="anonymous"; el.setAttribute('playsinline',''); el.innerHTML="";
@@ -243,57 +206,6 @@ function hookGestures(){
   addEventListener('pointerup',   e=>{ /* no-rotate */ });
 }
 
-/* --- 3D → 2D проекц (плэйн дотор байрлуулах) --- */
-function worldToScreen(v){
-  if (!renderer || !camera) return {x:-9999, y:-9999};
-  const rect = renderer.domElement.getBoundingClientRect();
-  const p = v.clone().project(camera);
-  const x = (p.x * 0.5 + 0.5) * rect.width  + rect.left;
-  const y = (-p.y* 0.5 + 0.5) * rect.height + rect.top;
-  return {x,y};
-}
-function localOnPlane(u,v){ // u,v in [-0.5..0.5]
-  if (!plane || !plane.geometry || !plane.geometry.parameters) return new THREE.Vector3(0,0,0);
-  const w = plane.geometry.parameters.width;
-  const h = plane.geometry.parameters.height;
-  const pt = new THREE.Vector3(u*w*0.5, v*h*0.5, 0);
-  return plane.localToWorld(pt);
-}
-
-/* Интро шошго */
-let showTags = false;
-function updateIntroTags(){
-  if (!showTags) return;
-  const t = vIntro.currentTime || 0;
-
-  const segOf = (id) => {
-    const arr = TAG_TIMELINE.filter(s => s.id === id && t >= s.t[0] && t < s.t[1]);
-    return arr.length ? arr[arr.length - 1] : null;
-  };
-
-  const segEx = segOf('ex'); // Дасгал
-  const segGr = segOf('gr'); // Хувь хүний хөгжил
-  const segKn = segOf('kn'); // Мэдлэг
-
-  if (segEx){
-    const w = worldToScreen(localOnPlane(segEx.u, segEx.v));
-    tagEls.ex.style.left = w.x+'px'; tagEls.ex.style.top = w.y+'px';
-    tagEls.ex.classList.toggle('show', !!segEx.show);
-  } else tagEls.ex.classList.remove('show');
-
-  if (segGr){
-    const w = worldToScreen(localOnPlane(segGr.u, segGr.v));
-    tagEls.gr.style.left = w.x+'px'; tagEls.gr.style.top = w.y+'px';
-    tagEls.gr.classList.toggle('show', !!segGr.show);
-  } else tagEls.gr.classList.remove('show');
-
-  if (segKn){
-    const w = worldToScreen(localOnPlane(segKn.u, segKn.v));
-    tagEls.kn.style.left = w.x+'px'; tagEls.kn.style.top = w.y+'px';
-    tagEls.kn.classList.toggle('show', !!segKn.show);
-  } else tagEls.kn.classList.remove('show');
-}
-
 /* Bootstrap */
 (async function bootstrap(){
   const libs = await window.__depsReady;
@@ -329,9 +241,6 @@ function updateIntroTags(){
 
     camera.updateFrame(renderer);
     renderer.render(scene,camera);
-
-    // Интро дээр шошго хөдөлгөөн
-    if (currentVideo===vIntro) updateIntroTags();
   });
 
   document.addEventListener('visibilitychange', ()=>{ try{ document.hidden?camera.pause():camera.start(); }catch{} });
@@ -364,17 +273,11 @@ async function startIntroFlow(){
     hasPlaced=true; hint.style.display='block'; removeEventListener('pointerdown', place);
     try{ vIntro.muted=false; await vIntro.play(); btnUnmute.style.display='none'; }
     catch{ vIntro.muted=true; vIntro.play().catch(()=>{}); btnUnmute.style.display='inline-block'; }
-    // Шошгыг интро дээр идэвхжүүлнэ
-    showTags = true;
     dbg('intro placed (center, scaled)');
   };
   addEventListener('pointerdown', place, {once:true, passive:true});
 
-  vIntro.onended=()=>{
-    showTags=false;
-    Object.values(tagEls).forEach(el=>el.classList.remove('show'));
-    openMenu(); dbg('intro ended → menu');
-  };
+  vIntro.onended=()=>{ openMenu(); dbg('intro ended → menu'); };
 }
 
 /* ===== Menu logic ===== */
