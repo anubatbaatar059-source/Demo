@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Intro → Меню → Дасгал (Intro Buttons → Fly to Menu, No Duplicates)</title>
+  <title>WebAR — Intro → Меню → Дасгал (Intro Buttons → Fly to Menu)</title>
   <style>
     :root { --z-ui:5; --z-menu:6; --z-debug:20 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
@@ -20,7 +20,7 @@
     /* Unmute */
     #btnUnmute{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
 
-    /* ===== Intro Overlay BUTTONS (ONLY during intro) ===== */
+    /* ===== ONLY INTRO BUTTONS (during intro) ===== */
     #overlayIntroBtns{ position:fixed; inset:0; z-index:var(--z-ui); pointer-events:none; }
     .introbtn{
       position:absolute; transform:translate(-50%,-50%);
@@ -30,7 +30,7 @@
       letter-spacing:.2px; opacity:0; white-space:nowrap;
       transition:opacity .25s ease, left .45s cubic-bezier(.2,.7,.2,1), top .45s cubic-bezier(.2,.7,.2,1), transform .3s ease;
       user-select:none;
-      /* Интро дээр КЛИКЛЭХГҮЙ (таны шаардлага) */
+      /* Интро дээр КЛИК хийлгэхгүй */
       pointer-events:none;
     }
     .introbtn.show{ opacity:1; }
@@ -87,14 +87,14 @@
   <div id="tapToStart"><button class="btn">▶ Эхлүүлэх (дуу нээх)</button></div>
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
 
-  <!-- ✅ ONLY INTRO BUTTONS (давхар шошго байхгүй) -->
+  <!-- ✅ ONLY INTRO BUTTONS (давхардалгүй) -->
   <div id="overlayIntroBtns">
     <div id="ibExercise"  class="introbtn">ДАСГАЛ</div>
     <div id="ibGrowth"    class="introbtn">ХӨГЖИЛ</div>
     <div id="ibKnowledge" class="introbtn">МЭДЛЭГ</div>
   </div>
 
-  <!-- Menu -->
+  <!-- Animated Menu -->
   <div id="menu">
     <div class="menu-panel">
       <h2 class="menu-title">AR Меню</h2>
@@ -136,13 +136,14 @@
 <script>
 /* ===== CONFIG ===== */
 const INTRO_WEBM_URL     = "https://ariukcs1a.github.io/video/Video_01_alpha_audio.webm";
-const INTRO_MP4_URL      = ""; // iOS fallback хүсвэл энд
+const INTRO_MP4_URL      = ""; // iOS-д MP4 fallback хэрэгтэй бол энд
 const EXERCISE_WEBM_URL  = "https://ariukcs1a.github.io/video/Video%2002_clean_100MB.webm";
-const EXERCISE_MP4_URL   = ""; // iOS-д MP4 (H.264/AAC) тогтвортой
+const EXERCISE_MP4_URL   = ""; // iOS-д MP4 (H.264/AAC)
 
+/* Видеог 90°/180° эргэчихвэл: 0, Math.PI/2, Math.PI */
 const VIDEO_ROT_Z = 0;
 
-/* Интро товчнуудын цаг/байрлал (u,v) */
+/* Интро товчнуудын (AR дотор) цаг/байршил */
 const BTN_TIMELINE = [
   { id:'ex', t:[20.5, 22.8], u:-0.18, v: 0.18, show:true },
   { id:'gr', t:[30.5, 33.2], u: 0.26, v: 0.16, show:true },
@@ -165,7 +166,6 @@ const introBtnEls = {
 function setSources(el, webm, mp4=""){
   el.crossOrigin="anonymous";
   el.setAttribute('playsinline','');
-  el.setAttribute('webkit-playsinline','');
   el.setAttribute('preload','auto');
   el.innerHTML="";
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -184,9 +184,9 @@ let THREE, ZT, renderer, camera, scene, tracker, anchor, plane;
 let scaleFactor=1.35;
 const MIN_S=0.6, MAX_S=3;
 let texIntro, texEx, currentVideo, baseH=0.9;
-let anchorSet = false;
+let anchorSet = false;     // world anchor-ыг ганц удаа тогтооно
 let lastUIT = -1;
-let showIntroBtns=false;
+let showIntroBtns=false;   // интро товчнууд идэвхтэй эсэх
 let isAnimatingToMenu=false;
 
 function applyScale(){
@@ -237,6 +237,7 @@ function hookGestures(){
   },{passive:true});
   addEventListener('touchend', ()=>{ plane.dataset_prevDist=""; }, {passive:true});
 
+  // Wheel zoom
   addEventListener('wheel', e=>{
     scaleFactor=Math.min(MAX_S,Math.max(MIN_S,scaleFactor*(e.deltaY>0?0.95:1.05)));
     applyScale();
@@ -260,17 +261,17 @@ function localOnPlane(u,v){
   return plane.localToWorld(pt);
 }
 
-/* Интро товчнуудын байрлалыг шинэчлэх */
+/* Интро товчнуудыг байрлуулах */
 function updateIntroButtons(){
   if (!showIntroBtns || isAnimatingToMenu) return;
   const t = vIntro.currentTime || 0;
-  if (Math.abs(t - lastUIT) < 0.033) return;
+  if (Math.abs(t - lastUIT) < 0.033) return; // ~30fps
   lastUIT = t;
 
   const segOf = (id) => {
     const f = BTN_TIMELINE.filter(s => s.id === id && t >= s.t[0] && t < s.t[1]);
     return f.length ? f[f.length - 1] : null;
-    };
+  };
   const segs = {
     ex: segOf('ex'),
     gr: segOf('gr'),
@@ -296,7 +297,7 @@ function getCenter(el){
 function animateIntroButtonsToMenu(){
   isAnimatingToMenu = true;
 
-  // 1) Menu-гээ түр гаргаж ирээд (opacity 0) хэмжилт авна
+  // 1) Menu-г түр гаргаж (opacity 0) байрлалыг нь хэмжинэ
   menu.style.display='flex';
   menu.style.opacity='0';
   menu.style.pointerEvents='none';
@@ -307,25 +308,23 @@ function animateIntroButtonsToMenu(){
     kn: getCenter(document.getElementById('mKnowledge')),
   };
 
-  // 2) Intro товчнуудыг menu картын байрлал руу шилжүүлэх
+  // 2) Интро товчнуудыг меню картын байрлал руу шилжүүлнэ
   ['ex','gr','kn'].forEach(id=>{
     const btn = introBtnEls[id];
-    if (!btn.classList.contains('show')) return; // тухайн үед харагдахгүй байж болно
+    if (!btn.classList.contains('show')) return;
     btn.style.transition = 'left .55s cubic-bezier(.18,.7,.2,1), top .55s cubic-bezier(.18,.7,.2,1), opacity .35s ease';
     btn.style.left = dst[id].x + 'px';
     btn.style.top  = dst[id].y + 'px';
   });
 
-  // 3) 600ms дараа интро товчнуудыг нууж, menu-г бүрэн харуулна
+  // 3) 600ms дараа интро товчнуудыг нууж, меню-г бүрэн харуулна
   setTimeout(()=>{
     ['ex','gr','kn'].forEach(id=>{
       const btn = introBtnEls[id];
       btn.classList.remove('show');
       btn.style.transition = '';
     });
-    // Интро товчнуудын контейнерийг бүрмөсөн нуух (давхцахгүй)
     document.getElementById('overlayIntroBtns').style.display='none';
-
     menu.style.opacity='1';
     menu.style.pointerEvents='auto';
     isAnimatingToMenu = false;
@@ -361,6 +360,7 @@ function animateIntroButtonsToMenu(){
   hookGestures();
 
   renderer.setAnimationLoop(()=>{
+    // World anchor — нэг удаа тавина
     if (!anchorSet) {
       tracker.setAnchorPoseFromCameraOffset(0,0,-1.5);
       anchorSet = true;
@@ -398,11 +398,14 @@ function animateIntroButtonsToMenu(){
     try{ currentVideo && currentVideo.pause(); }catch{}
     await startIntro_Auto(true);
   });
+
+  // Close menu
+  document.getElementById('btnCloseMenu').addEventListener('click', closeMenu);
 })();
 
 /* Intro flow */
 async function startIntro_Auto(fromTap=false){
-  // Интро overlay товчнуудыг дахин идэвхжүүлнэ
+  // Интро overlay товчнуудыг идэвхжүүлнэ
   const overlay = document.getElementById('overlayIntroBtns');
   overlay.style.display = 'block';
   showIntroBtns = true;
@@ -425,21 +428,33 @@ async function startIntro_Auto(fromTap=false){
   if (vIntro.readyState>=1) fitPlaneToVideo(vIntro);
   else await new Promise(r=>vIntro.addEventListener('loadedmetadata', ()=>{fitPlaneToVideo(vIntro); r();},{once:true}));
 
-  const ok = await tryPlayPreferUnmuted(vIntro);
-  if (!ok && !fromTap){
-    tapLay.style.display='grid';
-    throw new Error('autoplay prevented');
+  // Unmuted эхэлж оролдоно → бүтэхгүй бол muted → tap fallback
+  try{
+    vIntro.muted=false;
+    await vIntro.play();
+    btnUnmute.style.display='none';
+  }catch(e1){
+    try{
+      vIntro.muted=true;
+      await vIntro.play();
+      btnUnmute.style.display='inline-block';
+    }catch(e2){
+      if (!fromTap){
+        tapLay.style.display='grid';
+        throw new Error('autoplay prevented');
+      }
+    }
   }
+
   dbg('intro playing');
 
   vIntro.onended=()=>{
-    // Интро товчнуудыг меню рүү "нисгэнэ"
     animateIntroButtonsToMenu();
     dbg('intro ended → fly buttons → menu');
   };
 }
 
-/* Menu show/hide */
+/* Menu */
 function closeMenu(){ menu.style.display='none'; }
 
 /* Exercise — шууд тоглуулах */
@@ -461,7 +476,18 @@ async function startExerciseDirect(){
   scaleFactor=1.35; applyScale();
   vEx.currentTime=0;
 
-  const ok = await tryPlayPreferUnmuted(vEx);
+  try{
+    vEx.muted=false;
+    await vEx.play();
+    btnUnmute.style.display='none';
+  }catch(e1){
+    try{
+      vEx.muted=true;
+      await vEx.play();
+      btnUnmute.style.display='inline-block';
+    }catch(e2){}
+  }
+
   dbg('exercise playing (AR, no placement)');
 }
 
