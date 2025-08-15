@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Intro → Меню → Дасгал (Intro Buttons stay; same design, sticky)</title>
+  <title>WebAR — Intro → Меню → Дасгал (Placement + Smart Contrast)</title>
   <style>
-    :root { --z-ui:5; --z-menu:6; --z-debug:20 }
+    :root { --z-ui:5; --z-menu:6; --z-debug:20; --z-place:7 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
     canvas.webgl{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
 
@@ -13,9 +13,9 @@
     #debug{position:fixed;left:10px;top:10px;z-index:var(--z-debug);color:#0f0;background:rgba(0,0,0,.5);
            padding:6px 8px;border-radius:6px;font:12px/1.25 monospace;white-space:pre-wrap;max-width:92vw}
 
-    /* Tap-to-start (autoplay with sound бүтэлгүйтвэл) */
+    /* Tap-to-start */
     #tapToStart{position:fixed;inset:0;display:none;place-items:center;background:#000;z-index:var(--z-ui)}
-    .btn{padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
+    .btn{padding:14px 16px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:800;box-shadow:0 8px 28px rgba(0,0,0,.25)}
 
     /* Unmute */
     #btnUnmute{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
@@ -24,50 +24,88 @@
     #overlayIntroBtns{ position:fixed; inset:0; z-index:var(--z-ui); pointer-events:none; }
     .introbtn{
       position:absolute; transform:translate(-50%,-50%);
-      display:flex; align-items:center; gap:12px; padding:14px 16px;
-      border-radius:14px;
-      background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15);
-      color:#fff; font-weight:800; letter-spacing:.2px;
+      display:flex; align-items:center; gap:12px; padding:12px 14px;
+      border-radius:14px; background:rgba(255,255,255,.10);
+      border:1px solid rgba(255,255,255,.20);
+      color:#fff; font-weight:800; letter-spacing:.2px; font-size:14px;
       box-shadow:0 12px 36px rgba(0,0,0,.45);
       white-space:nowrap; opacity:0;
-      transition:opacity .25s ease, left .25s ease, top .25s ease, transform .25s ease;
+      transition:opacity .25s ease, transform .25s ease, left .25s ease, top .25s ease;
       user-select:none; pointer-events:none;
-      font-size:14px;
+      /* smart contrast helpers */
+      -webkit-text-stroke: .6px rgba(0,0,0,.8);
+      text-shadow: 0 1px 2px rgba(0,0,0,.85), 0 0 1px rgba(255,255,255,.4);
+      backdrop-filter: blur(4px);
     }
     .introbtn.show{ opacity:1; }
-    .introbtn.mini{ transform:translate(-50%,-50%) scale(0.88); }
-    .introbtn:active{ transform:translate(-50%,-50%) scale(0.96) }
+    .introbtn.mini{ transform:translate(-50%,-50%) scale(.88) }
+
+    /* ===== PLACEMENT UI ===== */
+    #placeUI{
+      position:fixed; inset:0; display:none; z-index:var(--z-place);
+      align-items:center; justify-content:center; pointer-events:none;
+    }
+    .reticle{
+      width:74px;height:74px;border-radius:50%;
+      box-shadow:0 0 0 2px rgba(255,255,255,.9) inset, 0 0 0 6px rgba(0,0,0,.35) inset, 0 0 20px rgba(0,0,0,.8);
+      animation:pulse 1.4s ease-in-out infinite; pointer-events:none;
+    }
+    @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.04)}100%{transform:scale(1)}}
+    .placeControls{
+      position:fixed; left:50%; bottom:22px; transform:translateX(-50%);
+      display:flex; gap:10px; z-index:var(--z-place); pointer-events:auto;
+    }
+    .pill{padding:12px 14px;border-radius:999px;background:rgba(0,0,0,.5);color:#fff;border:1px solid rgba(255,255,255,.25);font-weight:800}
+    .hint{
+      position:fixed; left:50%; top:18px; transform:translateX(-50%);
+      color:#fff; font-weight:700; padding:8px 12px; border-radius:12px;
+      background:rgba(0,0,0,.45); border:1px solid rgba(255,255,255,.25);
+      text-shadow:0 1px 2px rgba(0,0,0,.8);
+    }
 
     /* ===== MENU ===== */
     #menu{
       position:fixed; inset:0; display:none; align-items:center; justify-content:center;
-      z-index:var(--z-menu); background:rgba(0,0,0,0.35); backdrop-filter:blur(6px);
-      animation: fadeIn .25s ease forwards;
+      z-index:var(--z-menu); background:rgba(0,0,0,.28); backdrop-filter:blur(6px); animation:fadeIn .25s ease forwards;
     }
     .menu-panel{
       width:min(520px,92vw);
       background:linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.06));
       border:1px solid rgba(255,255,255,.18);
       border-radius:20px; padding:20px 18px; box-shadow:0 20px 60px rgba(0,0,0,.35);
-      transform:scale(.96); opacity:0; animation: popIn .28s .1s ease forwards;
+      transform:scale(.96); opacity:0; animation:popIn .28s .1s ease forwards;
     }
-    .menu-title{margin:0 0 10px 0; color:#fff; text-align:center; font-weight:800; letter-spacing:.3px}
-    .menu-sub{margin:0 0 18px 0; color:#d6e2ff; text-align:center; font-size:13px; opacity:.85}
+    .menu-title{
+      margin:0 0 10px 0; text-align:center; font-weight:900; letter-spacing:.3px; font-size:22px;
+      color:#fff;
+    }
+    .menu-sub{
+      margin:0 0 18px 0; text-align:center; font-size:13px; opacity:.90;
+      color:#dfe8ff;
+    }
     .menu-grid{display:grid; gap:12px}
     .card{
       display:flex; align-items:center; gap:12px; padding:14px 16px; border-radius:14px; cursor:pointer;
       background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15);
-      color:#fff; user-select:none; transform:translateY(12px); opacity:0;
-      animation: slideUp .35s ease forwards;
+      color:#fff; user-select:none; transform:translateY(12px); opacity:0; animation:slideUp .35s ease forwards;
     }
     .card:nth-child(1){ animation-delay:.18s }
     .card:nth-child(2){ animation-delay:.28s }
     .card:nth-child(3){ animation-delay:.38s }
     .card:hover{ transform:translateY(0) scale(1.01); background:rgba(255,255,255,.12) }
     .card .icon{width:36px;height:36px;border-radius:12px;background:rgba(255,255,255,.15);display:grid;place-items:center;font-size:18px}
-    .card .ttl{font-weight:800}
+    .card .ttl{font-weight:900}
+
     .row{display:flex;gap:10px;justify-content:center;margin-top:12px}
     .ghost{background:transparent;border:1px dashed rgba(255,255,255,.25);color:#fff}
+
+    /* Smart contrast classes */
+    .smartText{
+      -webkit-text-stroke: .7px rgba(0,0,0,.9);
+      text-shadow: 0 2px 6px rgba(0,0,0,.8), 0 0 1px rgba(255,255,255,.5);
+      backdrop-filter: blur(2px);
+    }
+    .smartBlend{ mix-blend-mode:difference; }
 
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
     @keyframes popIn{to{opacity:1; transform:scale(1)}}
@@ -89,43 +127,51 @@
   <div id="tapToStart"><button class="btn">▶ Эхлүүлэх (дуу нээх)</button></div>
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
 
-  <!-- ✅ INTRO BUTTONS (menu style) -->
+  <!-- INTRO BUTTONS (sticky) -->
   <div id="overlayIntroBtns">
-    <div id="ibExercise"  class="introbtn">🏃 ДАСГАЛ</div>
-    <div id="ibGrowth"    class="introbtn">🌱 ХӨГЖИЛ</div>
-    <div id="ibKnowledge" class="introbtn">📘 ХИЧЭЭЛ</div>
+    <div id="ibExercise"  class="introbtn smartText">🏃 ДАСГАЛ</div>
+    <div id="ibGrowth"    class="introbtn smartText">🌱 ХӨГЖИЛ</div>
+    <div id="ibKnowledge" class="introbtn smartText">📘 ХИЧЭЭЛ</div>
   </div>
+
+  <!-- PLACEMENT UI -->
+  <div id="placeUI">
+    <div class="reticle"></div>
+  </div>
+  <div class="placeControls" id="placeBtns" style="display:none">
+    <button id="btnPlace" class="btn">📍 Place</button>
+    <button id="btnCancelPlace" class="pill">Cancel</button>
+  </div>
+  <div id="placeHint" class="hint" style="display:none">Төхөөрөмжөө чиглүүлээд, хоёр хуруугаар зайг өөрчлөөд “Place” дарна</div>
+  <button id="btnReposition" class="pill" style="position:fixed;right:12px;top:12px;display:none;z-index:var(--z-ui)">↔ Reposition</button>
 
   <!-- Animated Menu -->
   <div id="menu">
     <div class="menu-panel">
-      <h2 class="menu-title">AR Меню</h2>
-      <p class="menu-sub">Туршлагаа сонгоно уу</p>
+      <h2 class="menu-title smartText smartBlend">AR Меню</h2>
+      <p class="menu-sub smartText">Туршлагаа сонгоно уу</p>
       <div class="menu-grid">
         <div class="card" id="mExercise">
           <div class="icon">🏃</div>
           <div>
-            <div class="ttl">Дасгал</div>
-            <div style="opacity:.8;font-size:12px">Шууд тоглуулах</div>
+            <div class="ttl smartText">Дасгал</div>
+            <div style="opacity:.85;font-size:12px" class="smartText">Шууд тоглуулах</div>
           </div>
         </div>
         <div class="card" id="mGrowth">
           <div class="icon">🌱</div>
           <div>
-            <div class="ttl">Хувь хүний хөгжил</div>
-            <div style="opacity:.8;font-size:12px">Тун удахгүй</div>
+            <div class="ttl smartText">Хувь хүний хөгжил</div>
+            <div style="opacity:.85;font-size:12px" class="smartText">Тун удахгүй</div>
           </div>
         </div>
         <div class="card" id="mKnowledge">
           <div class="icon">📘</div>
           <div>
-            <div class="ttl">Хичээл</div>
-            <div style="opacity:.8;font-size:12px">Тун удахгүй</div>
+            <div class="ttl smartText">Хичээл</div>
+            <div style="opacity:.85;font-size:12px" class="smartText">Тун удахгүй</div>
           </div>
         </div>
-      </div>
-      <div class="row">
-        <button class="btn ghost" id="btnRestart">Интро дахин</button>
       </div>
     </div>
   </div>
@@ -137,24 +183,24 @@
 <script>
 /* ===== CONFIG ===== */
 const INTRO_WEBM_URL     = "https://ariukcs1a.github.io/video/Video_01_alpha_audio.webm";
-const INTRO_MP4_URL      = "";
+const INTRO_MP4_URL      = ""; // iOS fallback MP4 (H.264/AAC) хүсвэл энд
 const EXERCISE_WEBM_URL  = "https://ariukcs1a.github.io/video/Video%2002_clean_100MB.webm";
-const EXERCISE_MP4_URL   = "";
+const EXERCISE_MP4_URL   = ""; // iOS fallback MP4
 
+/* Видео 90°/180° эргэвэл: 0, Math.PI/2, Math.PI */
 const VIDEO_ROT_Z = 0;
 
-/* Интро товчнуудын цаг/байршил (u,v нь -1..+1) */
+/* Интро товчнуудын timeline (u,v нь -1..+1) */
 const BTN_TIMELINE = [
   { id:'ex', t:[20.5, 22.8], u:-0.18, v: 0.18, show:true },
   { id:'gr', t:[30.5, 33.2], u: 0.26, v: 0.16, show:true },
   { id:'kn', t:[35.0, 37.0], u:-0.08, v: 0.02, show:true },
 ];
-
-/* 🆕 Интро дуусаад sticky болсон байрлалд жижигхэн оффсет (px) */
+/* Sticky оффсет */
 const BTN_OFFSETS_LOCKED = {
-  ex: { dx: -5,  dy: -28 }, // Дасгал дээш
-  kn: { dx: -5,  dy:  28 }, // Хичээл доош
-  gr: { dx: 15, dy:   0 }, // Хөгжил бага зэрэг зайтай
+  ex: { dx: -5,  dy: -28 },
+  kn: { dx: -5,  dy:  28 },
+  gr: { dx:  15, dy:   0 },
 };
 
 const dbg=(m)=>document.getElementById('debug').textContent='DEBUG: '+m;
@@ -163,15 +209,21 @@ const vEx    = document.getElementById('vidExercise');
 const btnUnmute=document.getElementById('btnUnmute');
 const tapLay = document.getElementById('tapToStart');
 const menu   = document.getElementById('menu');
-const overlayIntro = document.getElementById('overlayIntroBtns'); // 🆕
+const overlayIntro = document.getElementById('overlayIntroBtns');
 
-// Intro buttons map
+const placeUI    = document.getElementById('placeUI');
+const placeBtns  = document.getElementById('placeBtns');
+const placeHint  = document.getElementById('placeHint');
+const btnPlace   = document.getElementById('btnPlace');
+const btnCancelP = document.getElementById('btnCancelPlace');
+const btnRePos   = document.getElementById('btnReposition');
+
+/* Intro buttons map */
 const introBtnEls = {
   ex: document.getElementById('ibExercise'),
   gr: document.getElementById('ibGrowth'),
   kn: document.getElementById('ibKnowledge'),
 };
-
 /* Sticky төлөв */
 const introBtnState = {
   ex:{shown:false, locked:false, x:0, y:0},
@@ -179,10 +231,24 @@ const introBtnState = {
   kn:{shown:false, locked:false, x:0, y:0},
 };
 
+/* ===== AR Engine ===== */
+let THREE, ZT, renderer, camera, scene, tracker, anchor, plane;
+let scaleFactor=1.35;
+const MIN_S=0.6, MAX_S=3;
+let texIntro, texEx, currentVideo, baseH=0.9;
+let anchorSet = false;
+/* 👇 ЭД НЬ ЗӨВХӨН НЭГ УДАА ЗАРЛАГДАНА */
+let lastUIT = -1;
+let showIntroBtns = false;
+
+/* Placement state */
+let placing = false;
+let placeDist = 1.5; // м. Камерын өмнөх зай
+
 function setSources(el, webm, mp4=""){
   el.crossOrigin="anonymous";
   el.setAttribute('playsinline','');
-  el.setAttribute('preload','auto');
+  el.setAttribute='preload';
   el.innerHTML="";
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
   if (isIOS && mp4) {
@@ -194,15 +260,6 @@ function setSources(el, webm, mp4=""){
   }
   el.load();
 }
-
-/* ===== AR Engine ===== */
-let THREE, ZT, renderer, camera, scene, tracker, anchor, plane;
-let scaleFactor=1.35;
-const MIN_S=0.6, MAX_S=3;
-let texIntro, texEx, currentVideo, baseH=0.9;
-let anchorSet = false;
-let lastUIT = -1;
-let showIntroBtns=false;
 
 function applyScale(){
   if(!plane) return;
@@ -234,7 +291,7 @@ function videoTexture(el){
   return t;
 }
 
-/* Gestures — зөвхөн SCALE */
+/* ===== Gestures ===== */
 function hookGestures(){
   addEventListener('touchstart', ()=>{}, {passive:true});
   addEventListener('touchmove', e=>{
@@ -244,8 +301,14 @@ function hookGestures(){
       const prev=Number(plane.dataset_prevDist||k);
       if (prev>0){
         const ratio = k/prev;
-        scaleFactor = Math.min(MAX_S, Math.max(MIN_S, scaleFactor*ratio));
-        applyScale();
+        if (placing){
+          // Placement: хоёр хуруугаар anchor хүртэлх зай
+          placeDist = Math.min(5, Math.max(0.35, placeDist / ratio));
+        }else{
+          // Энгийн: масштаб
+          scaleFactor = Math.min(MAX_S, Math.max(MIN_S, scaleFactor*ratio));
+          applyScale();
+        }
       }
       plane.dataset_prevDist = k;
     }
@@ -253,8 +316,12 @@ function hookGestures(){
   addEventListener('touchend', ()=>{ plane.dataset_prevDist=""; }, {passive:true});
 
   addEventListener('wheel', e=>{
-    scaleFactor=Math.min(MAX_S,Math.max(MIN_S,scaleFactor*(e.deltaY>0?0.95:1.05)));
-    applyScale();
+    if (placing){
+      placeDist = Math.min(5, Math.max(0.35, placeDist * (e.deltaY>0?1.06:0.94)));
+    }else{
+      scaleFactor=Math.min(MAX_S,Math.max(MIN_S,scaleFactor*(e.deltaY>0?0.95:1.05)));
+      applyScale();
+    }
   }, {passive:true});
 }
 
@@ -275,7 +342,7 @@ function localOnPlane(u,v){
   return plane.localToWorld(pt);
 }
 
-/* Интро товчнууд (sticky logic + offsets) */
+/* Интро товчнууд (sticky + offsets) */
 function updateIntroButtons(){
   if (!showIntroBtns) return;
   const t = vIntro.currentTime || 0;
@@ -286,7 +353,6 @@ function updateIntroButtons(){
     const f = BTN_TIMELINE.filter(s => s.id === id && t >= s.t[0] && t < s.t[1]);
     return f.length ? f[f.length - 1] : null;
   };
-
   const proc = (key, el) => {
     const seg = segOf(key);
     const st  = introBtnState[key];
@@ -296,10 +362,7 @@ function updateIntroButtons(){
       el.style.left = w.x+'px';
       el.style.top  = w.y+'px';
       el.classList.add('show');
-
-      st.shown = true;
-      st.locked = false;
-      st.x = w.x; st.y = w.y;
+      st.shown = true; st.locked = false; st.x = w.x; st.y = w.y;
     } else if (st.shown) {
       if (!st.locked){
         st.locked = true;
@@ -312,17 +375,41 @@ function updateIntroButtons(){
       el.classList.remove('show');
     }
   };
-
   proc('ex', introBtnEls.ex);
   proc('gr', introBtnEls.gr);
   proc('kn', introBtnEls.kn);
 }
 
-/* Меню харуулах (интро товчнууд хэвээр) */
+/* Меню харуулах */
 function showMenuOverlay(){
   menu.style.display='flex';
   menu.style.opacity='1';
   menu.style.pointerEvents='auto';
+}
+
+/* ===== Placement helpers ===== */
+function enterPlacement(){
+  placing = true;
+  anchorSet = false; // frame тутамд anchor-г камертай харьцангуй байрлуулна
+  placeUI.style.display = 'flex';
+  placeBtns.style.display = 'flex';
+  placeHint.style.display = 'block';
+  btnRePos.style.display = 'none';
+}
+function exitPlacement(commit=true){
+  placeUI.style.display = 'none';
+  placeBtns.style.display = 'none';
+  placeHint.style.display = 'none';
+  placing = false;
+  if (commit){
+    // commit хийсний дараа anchor-г тогтвортой үлдээнэ
+    anchorSet = true;
+    btnRePos.style.display = 'block';
+  }else{
+    // cancel
+    anchorSet = true;
+    btnRePos.style.display = 'block';
+  }
 }
 
 /* Bootstrap */
@@ -354,8 +441,16 @@ function showMenuOverlay(){
   hookGestures();
 
   renderer.setAnimationLoop(()=>{
-    if (!anchorSet) { tracker.setAnchorPoseFromCameraOffset(0,0,-1.5); anchorSet = true; }
-    faceCameraNoRotate();
+    // Placement горим: anchor-ыг камерын өмнө placeDist зайд бүр кадр дээр шинэчилнэ
+    if (placing){
+      tracker.setAnchorPoseFromCameraOffset(0, 0, -placeDist);
+    } else if (!anchorSet){
+      // Энгийн эхлэлт/контент солих үед ганцхан удаа анхны байрлал
+      tracker.setAnchorPoseFromCameraOffset(0, 0, -placeDist);
+      anchorSet = true;
+    }
+
+    faceCameraNoRotate(); // billboard
 
     camera.updateFrame(renderer);
     renderer.render(scene,camera);
@@ -387,15 +482,23 @@ function showMenuOverlay(){
     ['ex','gr','kn'].forEach(id=>introBtnEls[id].classList.remove('mini','show'));
     await startIntro_Auto(true);
   });
+
+  // Placement buttons
+  btnPlace.addEventListener('click', ()=> exitPlacement(true));
+  btnCancelP.addEventListener('click', ()=> exitPlacement(false));
+  btnRePos.addEventListener('click', ()=> enterPlacement());
 })();
 
 /* Intro flow */
 async function startIntro_Auto(fromTap=false){
-  document.getElementById('overlayIntroBtns').style.display = 'block';
+  overlayIntro.style.display = 'block';
   showIntroBtns = true;
 
   await ensureCamera();
-  anchorSet = false;
+
+  // Эхлэх болгонд placement горим
+  placeDist = 1.5;
+  enterPlacement();
 
   setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
   setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
@@ -432,9 +535,8 @@ function closeMenu(){ menu.style.display='none'; }
 
 /* Exercise — шууд тоглуулах (интро товчнуудыг бүрэн нуух) */
 async function startExerciseDirect(){
-  closeMenu(); // дасгал дээр меню огт харагдахгүй
+  closeMenu();
 
-  // 🆕 интро товчнуудыг бүрэн нууж, update-ийг зогсооно
   overlayIntro.style.display = 'none';
   showIntroBtns = false;
   ['ex','gr','kn'].forEach(id => introBtnEls[id].classList.remove('show','mini'));
@@ -442,7 +544,8 @@ async function startExerciseDirect(){
   try{ await ensureCamera(); }catch{}
   if (currentVideo) try { currentVideo.pause(); } catch {}
 
-  anchorSet = false;
+  // Хэрэв дасгал эхлэхийн өмнө байршил дахин сонгуулах бол:
+  // enterPlacement();
 
   setSources(vEx, EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
   currentVideo=vEx;
@@ -461,7 +564,8 @@ async function startExerciseDirect(){
     try{ vEx.muted=true; await vEx.play(); btnUnmute.style.display='inline-block'; }catch{}
   }
 
-  dbg('exercise playing (AR, no menu).');
+  btnRePos.style.display = 'block'; // Дасгалын үеэр ч дахин байрлуулж болно
+  dbg('exercise playing (AR).');
 }
 
 /* Unmute */
