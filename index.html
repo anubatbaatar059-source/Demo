@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Intro → Меню → Дасгал (Intro Buttons → Fly to Menu)</title>
+  <title>WebAR — Intro → Меню → Дасгал (Intro Buttons stay; same design)</title>
   <style>
     :root { --z-ui:5; --z-menu:6; --z-debug:20 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
@@ -20,23 +20,26 @@
     /* Unmute */
     #btnUnmute{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
 
-    /* ===== ONLY INTRO BUTTONS (during intro) ===== */
+    /* ===== ONLY INTRO BUTTONS (during intro) =====
+       → Меню картуудын загварыг яг давтсан ===== */
     #overlayIntroBtns{ position:fixed; inset:0; z-index:var(--z-ui); pointer-events:none; }
     .introbtn{
       position:absolute; transform:translate(-50%,-50%);
-      padding:12px 14px; border-radius:12px; color:#fff; font-weight:800;
-      background:linear-gradient(180deg, rgba(17,153,250,.95), rgba(17,153,250,.75));
-      border:1px solid rgba(255,255,255,.35); box-shadow:0 12px 36px rgba(0,0,0,.45);
-      letter-spacing:.2px; opacity:0; white-space:nowrap;
-      transition:opacity .25s ease, left .45s cubic-bezier(.2,.7,.2,1), top .45s cubic-bezier(.2,.7,.2,1), transform .3s ease;
+      display:flex; align-items:center; gap:12px; padding:14px 16px;
+      border-radius:14px;
+      background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15);
+      color:#fff; font-weight:800; letter-spacing:.2px;
+      box-shadow:0 12px 36px rgba(0,0,0,.45);
+      white-space:nowrap; opacity:0;
+      transition:opacity .25s ease, left .45s cubic-bezier(.2,.7,.2,1), top .45s cubic-bezier(.2,.7,.2,1);
       user-select:none;
-      /* Интро дээр КЛИК хийлгэхгүй */
+      /* Интро дээр КЛИК хийлгэхгүй (хэрэв дарах боломжтой болгох бол pointer-events:auto болгоно) */
       pointer-events:none;
     }
     .introbtn.show{ opacity:1; }
     .introbtn:active{ transform:translate(-50%,-50%) scale(0.98) }
 
-    /* Menu */
+    /* ===== MENU (үгүй өөрчлөгдөөгүй, baseline) ===== */
     #menu{
       position:fixed; inset:0; display:none; align-items:center; justify-content:center;
       z-index:var(--z-menu); background:rgba(0,0,0,0.35); backdrop-filter:blur(6px);
@@ -87,11 +90,11 @@
   <div id="tapToStart"><button class="btn">▶ Эхлүүлэх (дуу нээх)</button></div>
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
 
-  <!-- ✅ ONLY INTRO BUTTONS (давхардалгүй) -->
+  <!-- ✅ ONLY INTRO BUTTONS (одоо меню картынхтай ижил дизайнтай) -->
   <div id="overlayIntroBtns">
-    <div id="ibExercise"  class="introbtn">ДАСГАЛ</div>
-    <div id="ibGrowth"    class="introbtn">ХӨГЖИЛ</div>
-    <div id="ibKnowledge" class="introbtn">МЭДЛЭГ</div>
+    <div id="ibExercise"  class="introbtn">🏃 ДАСГАЛ</div>
+    <div id="ibGrowth"    class="introbtn">🌱 ХӨГЖИЛ</div>
+    <div id="ibKnowledge" class="introbtn">📚 МЭДЛЭГ</div>
   </div>
 
   <!-- Animated Menu -->
@@ -187,7 +190,6 @@ let texIntro, texEx, currentVideo, baseH=0.9;
 let anchorSet = false;     // world anchor-ыг ганц удаа тогтооно
 let lastUIT = -1;
 let showIntroBtns=false;   // интро товчнууд идэвхтэй эсэх
-let isAnimatingToMenu=false;
 
 function applyScale(){
   if(!plane) return;
@@ -261,9 +263,9 @@ function localOnPlane(u,v){
   return plane.localToWorld(pt);
 }
 
-/* Интро товчнуудыг байрлуулах */
+/* Интро товчнуудыг байрлуулах (интро тоглож байх үед update) */
 function updateIntroButtons(){
-  if (!showIntroBtns || isAnimatingToMenu) return;
+  if (!showIntroBtns) return;
   const t = vIntro.currentTime || 0;
   if (Math.abs(t - lastUIT) < 0.033) return; // ~30fps
   lastUIT = t;
@@ -289,46 +291,11 @@ function updateIntroButtons(){
   });
 }
 
-/* ==== FLIP animation: Intro buttons → Menu cards ==== */
-function getCenter(el){
-  const r = el.getBoundingClientRect();
-  return { x: r.left + r.width/2, y: r.top + r.height/2 };
-}
-function animateIntroButtonsToMenu(){
-  isAnimatingToMenu = true;
-
-  // 1) Menu-г түр гаргаж (opacity 0) байрлалыг нь хэмжинэ
+/* Меню харуулах (интро товчнуудыг хөдөлгөхгүй, нуухгүй) */
+function showMenuOverlay(){
   menu.style.display='flex';
-  menu.style.opacity='0';
-  menu.style.pointerEvents='none';
-
-  const dst = {
-    ex: getCenter(document.getElementById('mExercise')),
-    gr: getCenter(document.getElementById('mGrowth')),
-    kn: getCenter(document.getElementById('mKnowledge')),
-  };
-
-  // 2) Интро товчнуудыг меню картын байрлал руу шилжүүлнэ
-  ['ex','gr','kn'].forEach(id=>{
-    const btn = introBtnEls[id];
-    if (!btn.classList.contains('show')) return;
-    btn.style.transition = 'left .55s cubic-bezier(.18,.7,.2,1), top .55s cubic-bezier(.18,.7,.2,1), opacity .35s ease';
-    btn.style.left = dst[id].x + 'px';
-    btn.style.top  = dst[id].y + 'px';
-  });
-
-  // 3) 600ms дараа интро товчнуудыг нууж, меню-г бүрэн харуулна
-  setTimeout(()=>{
-    ['ex','gr','kn'].forEach(id=>{
-      const btn = introBtnEls[id];
-      btn.classList.remove('show');
-      btn.style.transition = '';
-    });
-    document.getElementById('overlayIntroBtns').style.display='none';
-    menu.style.opacity='1';
-    menu.style.pointerEvents='auto';
-    isAnimatingToMenu = false;
-  }, 600);
+  menu.style.opacity='1';
+  menu.style.pointerEvents='auto';
 }
 
 /* Bootstrap */
@@ -409,7 +376,6 @@ async function startIntro_Auto(fromTap=false){
   const overlay = document.getElementById('overlayIntroBtns');
   overlay.style.display = 'block';
   showIntroBtns = true;
-  isAnimatingToMenu = false;
 
   await ensureCamera();
   anchorSet = false;
@@ -449,8 +415,9 @@ async function startIntro_Auto(fromTap=false){
   dbg('intro playing');
 
   vIntro.onended=()=>{
-    animateIntroButtonsToMenu();
-    dbg('intro ended → fly buttons → menu');
+    // Интро дуусмагц: менюг гаргана, харин интро товчнуудыг хөдөлгөхгүй/нуухгүй
+    showMenuOverlay();
+    dbg('intro ended → menu shown; intro buttons stay in place');
   };
 }
 
