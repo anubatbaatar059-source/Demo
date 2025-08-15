@@ -20,7 +20,7 @@
     /* Unmute */
     #btnUnmute{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
 
-    /* ===== ONLY INTRO BUTTONS (during intro) ===== → Меню картын ижил стиль ===== */
+    /* ===== INTRO BUTTONS (menu style) ===== */
     #overlayIntroBtns{ position:fixed; inset:0; z-index:var(--z-ui); pointer-events:none; }
     .introbtn{
       position:absolute; transform:translate(-50%,-50%);
@@ -30,11 +30,13 @@
       color:#fff; font-weight:800; letter-spacing:.2px;
       box-shadow:0 12px 36px rgba(0,0,0,.45);
       white-space:nowrap; opacity:0;
-      transition:opacity .25s ease, left .3s ease, top .3s ease;
+      transition:opacity .25s ease, left .25s ease, top .25s ease, transform .25s ease;
       user-select:none; pointer-events:none;
+      font-size:14px;
     }
     .introbtn.show{ opacity:1; }
-    .introbtn:active{ transform:translate(-50%,-50%) scale(0.98) }
+    .introbtn.mini{ transform:translate(-50%,-50%) scale(0.88); } /* Интро дууссаны дараа жижигрүүлнэ */
+    .introbtn:active{ transform:translate(-50%,-50%) scale(0.96) }
 
     /* ===== MENU ===== */
     #menu{
@@ -91,7 +93,7 @@
   <div id="overlayIntroBtns">
     <div id="ibExercise"  class="introbtn">🏃 ДАСГАЛ</div>
     <div id="ibGrowth"    class="introbtn">🌱 ХӨГЖИЛ</div>
-    <div id="ibKnowledge" class="introbtn">📚 МЭДЛЭГ</div>
+    <div id="ibKnowledge" class="introbtn">📘 ХИЧЭЭЛ</div>
   </div>
 
   <!-- Animated Menu -->
@@ -115,9 +117,9 @@
           </div>
         </div>
         <div class="card" id="mKnowledge">
-          <div class="icon">📚</div>
+          <div class="icon">📘</div>
           <div>
-            <div class="ttl">Мэдлэг</div>
+            <div class="ttl">Хичээл</div>
             <div style="opacity:.8;font-size:12px">Тун удахгүй</div>
           </div>
         </div>
@@ -135,19 +137,26 @@
 <script>
 /* ===== CONFIG ===== */
 const INTRO_WEBM_URL     = "https://ariukcs1a.github.io/video/Video_01_alpha_audio.webm";
-const INTRO_MP4_URL      = ""; // iOS-д MP4 fallback хэрэгтэй бол энд
+const INTRO_MP4_URL      = "";
 const EXERCISE_WEBM_URL  = "https://ariukcs1a.github.io/video/Video%2002_clean_100MB.webm";
-const EXERCISE_MP4_URL   = ""; // iOS-д MP4 (H.264/AAC)
+const EXERCISE_MP4_URL   = "";
 
-/* Видеог 90°/180° эргэчихвэл: 0, Math.PI/2, Math.PI */
 const VIDEO_ROT_Z = 0;
 
-/* Интро товчнуудын (AR дотор) цаг/байршил */
+/* Интро товчнуудын цаг/байршил (u,v нь -1..+1) */
 const BTN_TIMELINE = [
   { id:'ex', t:[20.5, 22.8], u:-0.18, v: 0.18, show:true },
   { id:'gr', t:[30.5, 33.2], u: 0.26, v: 0.16, show:true },
   { id:'kn', t:[35.0, 37.0], u:-0.08, v: 0.02, show:true },
 ];
+
+/* 🆕 Интро дуусаад sticky болсон байрлалд жижигхэн оффсет (px) өгнө
+   → Дасгал: дээш; Хичээл: доош; Хөгжил: бага зэрэг баруун тийш гэх мэт */
+const BTN_OFFSETS_LOCKED = {
+  ex: { dx: 0,  dy: -24 }, // Дасгал дээш
+  kn: { dx: 0,  dy:  20 }, // Хичээл доош
+  gr: { dx: 12, dy:   0 }, // Хөгжил бага зэрэг зайтай
+};
 
 const dbg=(m)=>document.getElementById('debug').textContent='DEBUG: '+m;
 const vIntro = document.getElementById('vidIntro');
@@ -162,7 +171,7 @@ const introBtnEls = {
   kn: document.getElementById('ibKnowledge'),
 };
 
-/* 🆕 Sticky төлөв: анх харагдсан байрлалыг түгжинэ */
+/* Sticky төлөв: анх харагдсан байрлалыг түгжинэ */
 const introBtnState = {
   ex:{shown:false, locked:false, x:0, y:0},
   gr:{shown:false, locked:false, x:0, y:0},
@@ -208,7 +217,7 @@ function fitPlaneToVideo(el){
   applyScale();
 }
 function faceCameraNoRotate(){
-  plane.quaternion.copy(camera.quaternion);   // billboard
+  plane.quaternion.copy(camera.quaternion);
   plane.rotation.z = VIDEO_ROT_Z;
 }
 async function ensureCamera(){
@@ -242,14 +251,13 @@ function hookGestures(){
   },{passive:true});
   addEventListener('touchend', ()=>{ plane.dataset_prevDist=""; }, {passive:true});
 
-  // Wheel zoom
   addEventListener('wheel', e=>{
     scaleFactor=Math.min(MAX_S,Math.max(MIN_S,scaleFactor*(e.deltaY>0?0.95:1.05)));
     applyScale();
   }, {passive:true});
 }
 
-/* 3D → 2D (интро товчнууд) */
+/* 3D → 2D */
 function worldToScreen(v){
   if (!renderer || !camera) return {x:-9999, y:-9999};
   const rect = renderer.domElement.getBoundingClientRect();
@@ -266,11 +274,11 @@ function localOnPlane(u,v){
   return plane.localToWorld(pt);
 }
 
-/* 🆕 Интро товчнуудыг байрлуулах (sticky logic) */
+/* Интро товчнууд (sticky logic + offsets) */
 function updateIntroButtons(){
   if (!showIntroBtns) return;
   const t = vIntro.currentTime || 0;
-  if (Math.abs(t - lastUIT) < 0.033) return; // ~30fps
+  if (Math.abs(t - lastUIT) < 0.033) return;
   lastUIT = t;
 
   const segOf = (id) => {
@@ -283,7 +291,6 @@ function updateIntroButtons(){
     const st  = introBtnState[key];
 
     if (seg && seg.show){
-      // сегмент идэвхтэй → live байрлал
       const w = worldToScreen(localOnPlane(seg.u, seg.v));
       el.style.left = w.x+'px';
       el.style.top  = w.y+'px';
@@ -291,17 +298,17 @@ function updateIntroButtons(){
 
       st.shown = true;
       st.locked = false;
-      st.x = w.x; st.y = w.y; // хамгийн сүүлийн байрлалыг хадгална
+      st.x = w.x; st.y = w.y;
     } else if (st.shown) {
-      // сегмент дууссан ч нэгэнт харагдсан бол → сүүлийн байрлалд түгжинэ
       if (!st.locked){
         st.locked = true;
-        el.style.left = st.x+'px';
-        el.style.top  = st.y+'px';
+        // оффсет өгөөд түгжинэ
+        const off = BTN_OFFSETS_LOCKED[key] || {dx:0,dy:0};
+        el.style.left = (st.x + off.dx) + 'px';
+        el.style.top  = (st.y + off.dy) + 'px';
       }
-      el.classList.add('show'); // харагдсаар байна
+      el.classList.add('show');
     } else {
-      // хараахан огт харагдаагүй бол л нууна
       el.classList.remove('show');
     }
   };
@@ -311,7 +318,7 @@ function updateIntroButtons(){
   proc('kn', introBtnEls.kn);
 }
 
-/* Меню харуулах (интро товчнуудыг хөдөлгөхгүй, нуухгүй) */
+/* Меню харуулах (интро товчнууд хэвээр) */
 function showMenuOverlay(){
   menu.style.display='flex';
   menu.style.opacity='1';
@@ -364,33 +371,26 @@ function showMenuOverlay(){
     tapLay.style.display='grid'; dbg('need user gesture to start with sound');
   }
 
-  // Tap-to-start
   tapLay.addEventListener('pointerdown', async ()=>{
     tapLay.style.display='none';
     try{ await startIntro_Auto(true); }catch(e){ dbg('after tap failed: '+(e?.message||e)); }
   });
 
-  // Меню товч: Дасгал
+  // Меню → Дасгал
   document.getElementById('mExercise').addEventListener('click', async ()=>{ await startExerciseDirect(); });
 
   // Restart intro
   document.getElementById('btnRestart').addEventListener('click', async ()=>{
     closeMenu();
     try{ currentVideo && currentVideo.pause(); }catch{}
-    // reset sticky states
     Object.values(introBtnState).forEach(s => { s.shown=false; s.locked=false; });
-    ['ex','gr','kn'].forEach(id=>introBtnEls[id].classList.remove('show'));
+    ['ex','gr','kn'].forEach(id=>introBtnEls[id].classList.remove('mini','show'));
     await startIntro_Auto(true);
   });
-
-  // Close menu (HTML дээр button байхгүй бол guard)
-  const btnClose = document.getElementById('btnCloseMenu');
-  if (btnClose) btnClose.addEventListener('click', closeMenu);
 })();
 
 /* Intro flow */
 async function startIntro_Auto(fromTap=false){
-  // Интро overlay товчнууд идэвхтэй
   document.getElementById('overlayIntroBtns').style.display = 'block';
   showIntroBtns = true;
 
@@ -421,18 +421,19 @@ async function startIntro_Auto(fromTap=false){
   dbg('intro playing');
 
   vIntro.onended=()=>{
-    // Интро дуусмагц: меню гарч ирнэ, интро товчнууд sticky байдлаар хэвээрээ
+    // Интро дуусмагц: товчнуудыг "mini" болгож (жижигрүүлж), менюг харуулна
+    ['ex','gr','kn'].forEach(id=>introBtnEls[id].classList.add('mini'));
     showMenuOverlay();
-    dbg('intro ended → menu shown; intro buttons stay');
+    dbg('intro ended → menu shown; intro buttons stay (mini).');
   };
 }
 
 /* Menu */
 function closeMenu(){ menu.style.display='none'; }
 
-/* Exercise — шууд тоглуулах */
+/* Exercise — шууд тоглуулах (меню гаргахгүй, интро товчнууд хэвээр) */
 async function startExerciseDirect(){
-  closeMenu();
+  closeMenu(); // дасгал дээр меню огт харагдахгүй
   try{ await ensureCamera(); }catch{}
   if (currentVideo) try { currentVideo.pause(); } catch {}
 
@@ -455,7 +456,7 @@ async function startExerciseDirect(){
     try{ vEx.muted=true; await vEx.play(); btnUnmute.style.display='inline-block'; }catch{}
   }
 
-  dbg('exercise playing (AR, no placement)');
+  dbg('exercise playing (AR, no menu).');
 }
 
 /* Unmute */
