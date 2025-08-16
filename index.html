@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-  <title>WebAR — Intro → Меню → Дасгал (Intro Buttons stay; same design, sticky)</title>
+  <title>WebAR — Intro → Меню → Дасгал (World-tracked Intro Buttons)</title>
   <style>
     :root { --z-ui:5; --z-menu:6; --z-debug:20 }
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
@@ -13,26 +13,31 @@
     #debug{position:fixed;left:10px;top:10px;z-index:var(--z-debug);color:#0f0;background:rgba(0,0,0,.5);
            padding:6px 8px;border-radius:6px;font:12px/1.25 monospace;white-space:pre-wrap;max-width:92vw}
 
-    /* Tap-to-start (autoplay with sound бүтэлгүйтвэл) */
+    /* Tap-to-start */
     #tapToStart{position:fixed;inset:0;display:none;place-items:center;background:#000;z-index:var(--z-ui)}
     .btn{padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
 
     /* Unmute */
     #btnUnmute{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
 
-    /* ===== INTRO BUTTONS (menu style) ===== */
-    #overlayIntroBtns{ position:fixed; inset:0; z-index:var(--z-ui); pointer-events:none; }
+    /* ===== (HUD) INTRO BUTTONS — ОДОО НУУГДАНА ===== */
+    /* Хэрэв хэрэглэх бол display:none-г ав; текст нь цагаан + хар хүрээтэй */
+    #overlayIntroBtns{ position:fixed; inset:0; z-index:var(--z-ui); pointer-events:none; display:none; } /* 🆕 */
     .introbtn{
       position:absolute; transform:translate(-50%,-50%);
       display:flex; align-items:center; gap:12px; padding:14px 16px;
       border-radius:14px;
-      background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15);
+      background:rgba(0,0,0,.45); /* 🆕 харанхувтар фон */
+      border:1px solid rgba(0,0,0,.8); /* 🆕 хар хүрээ (панел) */
       color:#fff; font-weight:800; letter-spacing:.2px;
-      box-shadow:0 12px 36px rgba(0,0,0,.45);
+      box-shadow:0 12px 36px rgba(0,0,0,.55);
       white-space:nowrap; opacity:0;
       transition:opacity .25s ease, left .25s ease, top .25s ease, transform .25s ease;
       user-select:none; pointer-events:none;
       font-size:14px;
+      -webkit-text-stroke: 1.5px #000;            /* 🆕 текстийн хар хүрээ */
+      text-shadow: 0 0 1px #000, 1px 1px 0 #000,  -1px 1px 0 #000,
+                   1px -1px 0 #000, -1px -1px 0 #000; /* 🆕 кросс-браузер дэмжлэг */
     }
     .introbtn.show{ opacity:1; }
     .introbtn.mini{ transform:translate(-50%,-50%) scale(0.88); }
@@ -89,7 +94,7 @@
   <div id="tapToStart"><button class="btn">▶ Эхлүүлэх (дуу нээх)</button></div>
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
 
-  <!-- ✅ INTRO BUTTONS (menu style) -->
+  <!-- (HUD) INTRO BUTTONS — одоо нуусан, гэхдээ стиль нь цагаан + хар хүрээ -->
   <div id="overlayIntroBtns">
     <div id="ibExercise"  class="introbtn">🏃 ДАСГАЛ</div>
     <div id="ibGrowth"    class="introbtn">🌱 ХӨГЖИЛ</div>
@@ -143,19 +148,12 @@ const EXERCISE_MP4_URL   = "";
 
 const VIDEO_ROT_Z = 0;
 
-/* Интро товчнуудын цаг/байршил (u,v нь -1..+1) */
-const BTN_TIMELINE = [
-  { id:'ex', t:[20.5, 22.8], u:-0.18, v: 0.18, show:true },
-  { id:'gr', t:[30.5, 33.2], u: 0.26, v: 0.16, show:true },
-  { id:'kn', t:[35.0, 37.0], u:-0.08, v: 0.02, show:true },
+/* Интро товч (u,v ∈ [-1..+1]) — энэ удаа 3D спрайт дээр ашиглана */
+const TAG_TIMELINE = [
+  { key:'ex', t:[20.5, 22.8], u:-0.18, v: 0.18, label:'🏃 ДАСГАЛ' },
+  { key:'gr', t:[30.5, 33.2], u: 0.26, v: 0.16, label:'🌱 ХӨГЖИЛ' },
+  { key:'kn', t:[35.0, 37.0], u:-0.08, v: 0.02, label:'📘 ХИЧЭЭЛ' },
 ];
-
-/* 🆕 Интро дуусаад sticky болсон байрлалд жижигхэн оффсет (px) */
-const BTN_OFFSETS_LOCKED = {
-  ex: { dx: -5,  dy: -28 }, // Дасгал дээш
-  kn: { dx: -5,  dy:  28 }, // Хичээл доош
-  gr: { dx: 15, dy:   0 }, // Хөгжил бага зэрэг зайтай
-};
 
 const dbg=(m)=>document.getElementById('debug').textContent='DEBUG: '+m;
 const vIntro = document.getElementById('vidIntro');
@@ -163,37 +161,7 @@ const vEx    = document.getElementById('vidExercise');
 const btnUnmute=document.getElementById('btnUnmute');
 const tapLay = document.getElementById('tapToStart');
 const menu   = document.getElementById('menu');
-const overlayIntro = document.getElementById('overlayIntroBtns'); // 🆕
-
-// Intro buttons map
-const introBtnEls = {
-  ex: document.getElementById('ibExercise'),
-  gr: document.getElementById('ibGrowth'),
-  kn: document.getElementById('ibKnowledge'),
-};
-
-/* Sticky төлөв */
-const introBtnState = {
-  ex:{shown:false, locked:false, x:0, y:0},
-  gr:{shown:false, locked:false, x:0, y:0},
-  kn:{shown:false, locked:false, x:0, y:0},
-};
-
-function setSources(el, webm, mp4=""){
-  el.crossOrigin="anonymous";
-  el.setAttribute('playsinline','');
-  el.setAttribute('preload','auto');
-  el.innerHTML="";
-  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-  if (isIOS && mp4) {
-    const s2=document.createElement('source'); s2.src=mp4; s2.type='video/mp4'; el.appendChild(s2);
-    if (webm){ const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1); }
-  } else {
-    if (webm){ const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1); }
-    if (mp4){  const s2=document.createElement('source'); s2.src=mp4;  s2.type='video/mp4'; el.appendChild(s2); }
-  }
-  el.load();
-}
+const overlayIntro = document.getElementById('overlayIntroBtns');
 
 /* ===== AR Engine ===== */
 let THREE, ZT, renderer, camera, scene, tracker, anchor, plane;
@@ -202,7 +170,9 @@ const MIN_S=0.6, MAX_S=3;
 let texIntro, texEx, currentVideo, baseH=0.9;
 let anchorSet = false;
 let lastUIT = -1;
-let showIntroBtns=false;
+
+/* 🆕 3D тэмдэг (спрайт) */
+let tagEx, tagGr, tagKn, tagsReady=false;
 
 function applyScale(){
   if(!plane) return;
@@ -217,8 +187,8 @@ function fitPlaneToVideo(el){
   plane.geometry=new THREE.PlaneGeometry(W, baseH);
   applyScale();
 }
+/* 🆕 Billboard-гүй — зөвхөн Z эргүүлэг (хэрэв хэрэгтэй бол) */
 function faceCameraNoRotate(){
-  plane.quaternion.copy(camera.quaternion);
   plane.rotation.z = VIDEO_ROT_Z;
 }
 async function ensureCamera(){
@@ -258,71 +228,84 @@ function hookGestures(){
   }, {passive:true});
 }
 
-/* 3D → 2D */
-function worldToScreen(v){
-  if (!renderer || !camera) return {x:-9999, y:-9999};
-  const rect = renderer.domElement.getBoundingClientRect();
-  const p = v.clone().project(camera);
-  const x = (p.x * 0.5 + 0.5) * rect.width  + rect.left;
-  const y = (-p.y* 0.5 + 0.5) * rect.height + rect.top;
-  return {x,y};
+/* 🆕 Canvas→Sprite: world-tracked интро товч */
+function makeLabelSprite(label){
+  const pad = 8, fs = 36;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  ctx.font = `800 ${fs}px system-ui, Arial, sans-serif`;
+  const textW = ctx.measureText(label).width;
+  canvas.width  = Math.ceil(textW + pad*2);
+  canvas.height = Math.ceil(fs + pad*2);
+
+  // panel (dark) + border
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+  ctx.lineWidth = 2;
+  const r = 14, w = canvas.width, h = canvas.height;
+  ctx.beginPath();
+  ctx.moveTo(r,0); ctx.lineTo(w-r,0); ctx.quadraticCurveTo(w,0,w,r);
+  ctx.lineTo(w,h-r); ctx.quadraticCurveTo(w,h,w-r,h);
+  ctx.lineTo(r,h); ctx.quadraticCurveTo(0,h,0,h-r);
+  ctx.lineTo(0,r); ctx.quadraticCurveTo(0,0,r,0); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // text: white + black stroke
+  ctx.fillStyle = '#fff';
+  ctx.textBaseline = 'top';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = '#000';
+  ctx.strokeText(label, pad, pad);
+  ctx.fillText(label, pad, pad);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent:true }));
+  const worldW = canvas.width * 0.0015;
+  const worldH = canvas.height * 0.0015;
+  spr.scale.set(worldW, worldH, 1);
+  plane.add(spr);
+  return spr;
 }
-function localOnPlane(u,v){
-  if (!plane || !plane.geometry || !plane.geometry.parameters) return new THREE.Vector3(0,0,0);
+/* u,v → plane локал байрлал */
+function setTagUVLocal(sprite, u, v){
+  if (!plane || !plane.geometry || !plane.geometry.parameters) return;
   const w = plane.geometry.parameters.width;
   const h = plane.geometry.parameters.height;
-  const pt = new THREE.Vector3(u*w*0.5, v*h*0.5, 0);
-  return plane.localToWorld(pt);
+  sprite.position.set(u * w * 0.5, v * h * 0.5, 0.001);
 }
 
-/* Интро товчнууд (sticky logic + offsets) */
-function updateIntroButtons(){
-  if (!showIntroBtns) return;
+/* Интро үеийн tag update */
+function updateIntroTags(){
+  if (currentVideo !== vIntro) return;
   const t = vIntro.currentTime || 0;
-  if (Math.abs(t - lastUIT) < 0.033) return;
-  lastUIT = t;
+  const map = { ex: tagEx, gr: tagGr, kn: tagKn };
 
-  const segOf = (id) => {
-    const f = BTN_TIMELINE.filter(s => s.id === id && t >= s.t[0] && t < s.t[1]);
-    return f.length ? f[f.length - 1] : null;
-  };
-
-  const proc = (key, el) => {
-    const seg = segOf(key);
-    const st  = introBtnState[key];
-
-    if (seg && seg.show){
-      const w = worldToScreen(localOnPlane(seg.u, seg.v));
-      el.style.left = w.x+'px';
-      el.style.top  = w.y+'px';
-      el.classList.add('show');
-
-      st.shown = true;
-      st.locked = false;
-      st.x = w.x; st.y = w.y;
-    } else if (st.shown) {
-      if (!st.locked){
-        st.locked = true;
-        const off = BTN_OFFSETS_LOCKED[key] || {dx:0,dy:0};
-        el.style.left = (st.x + off.dx) + 'px';
-        el.style.top  = (st.y + off.dy) + 'px';
-      }
-      el.classList.add('show');
-    } else {
-      el.classList.remove('show');
-    }
-  };
-
-  proc('ex', introBtnEls.ex);
-  proc('gr', introBtnEls.gr);
-  proc('kn', introBtnEls.kn);
+  for (const item of TAG_TIMELINE){
+    const spr = map[item.key];
+    if (!spr) continue;
+    const vis = (t >= item.t[0] && t < item.t[1]);
+    spr.visible = vis;
+    if (vis) setTagUVLocal(spr, item.u, item.v);
+  }
 }
 
-/* Меню харуулах (интро товчнууд хэвээр) */
-function showMenuOverlay(){
-  menu.style.display='flex';
-  menu.style.opacity='1';
-  menu.style.pointerEvents='auto';
+function setSources(el, webm, mp4=""){
+  el.crossOrigin="anonymous";
+  el.setAttribute('playsinline','');
+  el.setAttribute('preload','auto');
+  el.innerHTML="";
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (isIOS && mp4) {
+    const s2=document.createElement('source'); s2.src=mp4; s2.type='video/mp4'; el.appendChild(s2);
+    if (webm){ const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1); }
+  } else {
+    if (webm){ const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1); }
+    if (mp4){  const s2=document.createElement('source'); s2.src=mp4;  s2.type='video/mp4'; el.appendChild(s2); }
+  }
+  el.load();
 }
 
 /* Bootstrap */
@@ -355,12 +338,12 @@ function showMenuOverlay(){
 
   renderer.setAnimationLoop(()=>{
     if (!anchorSet) { tracker.setAnchorPoseFromCameraOffset(0,0,-1.5); anchorSet = true; }
-    faceCameraNoRotate();
+    faceCameraNoRotate(); // billboard биш, зөвхөн Z
 
     camera.updateFrame(renderer);
     renderer.render(scene,camera);
 
-    if (currentVideo===vIntro) updateIntroButtons();
+    updateIntroTags(); // 🆕 3D tag-аа шинэчилнэ
   });
 
   document.addEventListener('visibilitychange', ()=>{ try{ document.hidden?camera.pause():camera.start(); }catch{} });
@@ -383,16 +366,16 @@ function showMenuOverlay(){
   document.getElementById('btnRestart').addEventListener('click', async ()=>{
     closeMenu();
     try{ currentVideo && currentVideo.pause(); }catch{}
-    Object.values(introBtnState).forEach(s => { s.shown=false; s.locked=false; });
-    ['ex','gr','kn'].forEach(id=>introBtnEls[id].classList.remove('mini','show'));
+    // tag-уудыг эх байдалд:
+    [tagEx, tagGr, tagKn].forEach(s=>{ if(s){ s.visible=false; s.scale.setScalar(1); } });
     await startIntro_Auto(true);
   });
 })();
 
 /* Intro flow */
 async function startIntro_Auto(fromTap=false){
-  document.getElementById('overlayIntroBtns').style.display = 'block';
-  showIntroBtns = true;
+  // HUD overlay-г нууж байя (3D tag ашиглаж байгаа)
+  overlayIntro.style.display = 'none';
 
   await ensureCamera();
   anchorSet = false;
@@ -411,6 +394,15 @@ async function startIntro_Auto(fromTap=false){
   if (vIntro.readyState>=1) fitPlaneToVideo(vIntro);
   else await new Promise(r=>vIntro.addEventListener('loadedmetadata', ()=>{fitPlaneToVideo(vIntro); r();},{once:true}));
 
+  // 🆕 3D tag-уудыг нэг удаа үүсгэнэ
+  if (!tagsReady){
+    tagEx = makeLabelSprite('🏃 ДАСГАЛ');
+    tagGr = makeLabelSprite('🌱 ХӨГЖИЛ');
+    tagKn = makeLabelSprite('📘 ХИЧЭЭЛ');
+    tagEx.visible = tagGr.visible = tagKn.visible = false;
+    tagsReady = true;
+  }
+
   try{
     vIntro.muted=false; await vIntro.play(); btnUnmute.style.display='none';
   }catch{
@@ -421,23 +413,20 @@ async function startIntro_Auto(fromTap=false){
   dbg('intro playing');
 
   vIntro.onended=()=>{
-    ['ex','gr','kn'].forEach(id=>introBtnEls[id].classList.add('mini'));
+    // Интро дуусмагц tag-уудыг жижигрүүлж үлдээнэ (хэрэв нуух бол visible=false хийнэ)
+    [tagEx, tagGr, tagKn].forEach(s=>{ if(s){ s.visible=true; s.scale.multiplyScalar(0.88); } });
     showMenuOverlay();
-    dbg('intro ended → menu shown; intro buttons stay (mini).');
+    dbg('intro ended → menu shown; 3D tags stay (world-tracked).');
   };
 }
 
 /* Menu */
 function closeMenu(){ menu.style.display='none'; }
 
-/* Exercise — шууд тоглуулах (интро товчнуудыг бүрэн нуух) */
+/* Exercise — шууд тоглуулах (интро товчнуудыг нуух) */
 async function startExerciseDirect(){
-  closeMenu(); // дасгал дээр меню огт харагдахгүй
-
-  // 🆕 интро товчнуудыг бүрэн нууж, update-ийг зогсооно
-  overlayIntro.style.display = 'none';
-  showIntroBtns = false;
-  ['ex','gr','kn'].forEach(id => introBtnEls[id].classList.remove('show','mini'));
+  closeMenu();
+  [tagEx, tagGr, tagKn].forEach(s=>{ if(s){ s.visible=false; } }); // 🆕 3D tag-уудыг нуух
 
   try{ await ensureCamera(); }catch{}
   if (currentVideo) try { currentVideo.pause(); } catch {}
@@ -475,5 +464,3 @@ btnUnmute.addEventListener('click', async ()=>{
 </script>
 </body>
 </html>
-message.txt
-19 KB
