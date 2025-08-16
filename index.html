@@ -27,13 +27,12 @@
       display:flex; align-items:center; gap:12px; padding:14px 16px;
       border-radius:14px;
 
-      /* ▼ СТИЛЬ: цагаан текст + хар хүрээ, бараан panel */
+      /* цагаан текст + хар хүрээ, бараан panel */
       background:rgba(0,0,0,.45);
       border:1px solid rgba(0,0,0,.85);
       color:#fff; font-weight:800; letter-spacing:.2px;
 
-      /* Текстийг бүх фон дээр уншигдах болгоно */
-      -webkit-text-stroke:1px #000;  /* Safari/Chromium */
+      -webkit-text-stroke:1px #000;
       text-shadow:
         0 0 1px #000,
         1px 1px 0 #000, -1px 1px 0 #000,
@@ -157,16 +156,16 @@ const VIDEO_ROT_Z = 0;
 
 /* Интро товчнуудын цаг/байршил (u,v нь -1..+1) */
 const BTN_TIMELINE = [
-  { id:'ex', t:[20.5, 22.8], u:-0.18, v: 0.18, show:true },
-  { id:'gr', t:[30.5, 33.2], u: 0.26, v: 0.16, show:true },
-  { id:'kn', t:[35.0, 37.0], u:-0.08, v: 0.02, show:true },
+  { id:'ex', t:[20.5, 22.8], u:-0.25, v: 0.25, show:true },
+  { id:'gr', t:[30.5, 33.2], u: 0.26, v: 0.18, show:true },
+  { id:'kn', t:[35.0, 37.0], u:-0.25, v: 0.02, show:true },
 ];
 
-/* 🆕 Интро дуусаад sticky болсон байрлалд жижигхэн оффсет (px) */
+/* Интро дууссаны дараах оффсет (px) */
 const BTN_OFFSETS_LOCKED = {
-  ex: { dx: -5,  dy: -28 }, // Дасгал дээш
-  kn: { dx: -5,  dy:  28 }, // Хичээл доош
-  gr: { dx: 15, dy:   0 }, // Хөгжил бага зэрэг зайтай
+  ex: { dx: -5,  dy: -28 },
+  kn: { dx: -5,  dy:  28 },
+  gr: { dx: 15,  dy:   0 },
 };
 
 const dbg=(m)=>document.getElementById('debug').textContent='DEBUG: '+m;
@@ -175,7 +174,7 @@ const vEx    = document.getElementById('vidExercise');
 const btnUnmute=document.getElementById('btnUnmute');
 const tapLay = document.getElementById('tapToStart');
 const menu   = document.getElementById('menu');
-const overlayIntro = document.getElementById('overlayIntroBtns'); // 🆕
+const overlayIntro = document.getElementById('overlayIntroBtns');
 
 // Intro buttons map
 const introBtnEls = {
@@ -184,11 +183,11 @@ const introBtnEls = {
   kn: document.getElementById('ibKnowledge'),
 };
 
-/* Sticky төлөв */
+/* ===== Sticky төлөв (u,v-г хадгална) ===== */
 const introBtnState = {
-  ex:{shown:false, locked:false, x:0, y:0},
-  gr:{shown:false, locked:false, x:0, y:0},
-  kn:{shown:false, locked:false, x:0, y:0},
+  ex:{shown:false, u:null, v:null, x:0, y:0},
+  gr:{shown:false, u:null, v:null, x:0, y:0},
+  kn:{shown:false, u:null, v:null, x:0, y:0},
 };
 
 function setSources(el, webm, mp4=""){
@@ -287,9 +286,10 @@ function localOnPlane(u,v){
   return plane.localToWorld(pt);
 }
 
-/* Интро товчнууд (sticky logic + offsets) */
+/* ===== Интро товчнууд (u,v-ээр world-track) ===== */
 function updateIntroButtons(){
   if (!showIntroBtns) return;
+
   const t = vIntro.currentTime || 0;
   if (Math.abs(t - lastUIT) < 0.033) return;
   lastUIT = t;
@@ -303,25 +303,31 @@ function updateIntroButtons(){
     const seg = segOf(key);
     const st  = introBtnState[key];
 
+    // Сегмент дээр байвал тухайн локал u,v-г түгжинэ
     if (seg && seg.show){
-      const w = worldToScreen(localOnPlane(seg.u, seg.v));
-      el.style.left = w.x+'px';
-      el.style.top  = w.y+'px';
-      el.classList.add('show');
-
       st.shown = true;
-      st.locked = false;
-      st.x = w.x; st.y = w.y;
-    } else if (st.shown) {
-      if (!st.locked){
-        st.locked = true;
+      st.u = seg.u; st.v = seg.v;
+    }
+
+    // Хэрэв өмнө нь гарч ирсэн бол кадр бүрт world→screen проекц хийнэ
+    if (st.shown && st.u != null && st.v != null){
+      const w = worldToScreen(localOnPlane(st.u, st.v));
+
+      if (seg){ // сегмент дотор
+        el.style.left = w.x + 'px';
+        el.style.top  = w.y + 'px';
+        el.classList.remove('mini');
+      } else {  // сегментээс гадуур (интро дундуур ч, дууссаны дараа ч)
         const off = BTN_OFFSETS_LOCKED[key] || {dx:0,dy:0};
-        el.style.left = (st.x + off.dx) + 'px';
-        el.style.top  = (st.y + off.dy) + 'px';
+        el.style.left = (w.x + off.dx) + 'px';
+        el.style.top  = (w.y + off.dy) + 'px';
+        el.classList.add('mini');
       }
+
       el.classList.add('show');
+      st.x = w.x; st.y = w.y; // (жирийн лог хадгалалт)
     } else {
-      el.classList.remove('show');
+      el.classList.remove('show','mini');
     }
   };
 
@@ -395,8 +401,13 @@ function showMenuOverlay(){
   document.getElementById('btnRestart').addEventListener('click', async ()=>{
     closeMenu();
     try{ currentVideo && currentVideo.pause(); }catch{}
-    Object.values(introBtnState).forEach(s => { s.shown=false; s.locked=false; });
-    ['ex','gr','kn'].forEach(id=>introBtnEls[id].classList.remove('mini','show'));
+
+    // төлөв цэвэрлэх
+    for (const k of ['ex','gr','kn']){
+      introBtnState[k].shown=false;
+      introBtnState[k].u=null; introBtnState[k].v=null;
+      introBtnEls[k].classList.remove('mini','show');
+    }
     await startIntro_Auto(true);
   });
 })();
@@ -433,9 +444,10 @@ async function startIntro_Auto(fromTap=false){
   dbg('intro playing');
 
   vIntro.onended=()=>{
+    // Дуусмагц мини хэвээр, world-track үргэлжилнэ (updateIntroButtons дотор оффсет хамаарна)
     ['ex','gr','kn'].forEach(id=>introBtnEls[id].classList.add('mini'));
     showMenuOverlay();
-    dbg('intro ended → menu shown; intro buttons stay (mini).');
+    dbg('intro ended → menu shown; intro buttons stay (mini, world-tracked).');
   };
 }
 
@@ -446,7 +458,6 @@ function closeMenu(){ menu.style.display='none'; }
 async function startExerciseDirect(){
   closeMenu(); // дасгал дээр меню огт харагдахгүй
 
-  // интро товчнуудыг бүрэн нууж, update-ийг зогсооно
   overlayIntro.style.display = 'none';
   showIntroBtns = false;
   ['ex','gr','kn'].forEach(id => introBtnEls[id].classList.remove('show','mini'));
