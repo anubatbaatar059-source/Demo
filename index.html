@@ -9,29 +9,21 @@
     html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,Arial,sans-serif}
     canvas.webgl{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
 
-    /* Debug */
     #debug{position:fixed;left:10px;top:10px;z-index:var(--z-debug);color:#0f0;background:rgba(0,0,0,.5);
            padding:6px 8px;border-radius:6px;font:12px/1.25 monospace;white-space:pre-wrap;max-width:92vw}
 
-    /* Tap-to-start (autoplay with sound бүтэлгүйтвэл) */
     #tapToStart{position:fixed;inset:0;display:none;place-items:center;background:#000;z-index:var(--z-ui)}
     .btn{padding:14px 18px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:#111;font-weight:700;box-shadow:0 8px 28px rgba(0,0,0,.25)}
 
-    /* Unmute */
     #btnUnmute{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:var(--z-ui);display:none}
 
-    /* ===== INTRO BUTTONS (menu style) ===== */
     #overlayIntroBtns{ position:fixed; inset:0; z-index:var(--z-ui); pointer-events:none; }
     .introbtn{
       position:absolute; transform:translate(-50%,-50%);
       display:flex; align-items:center; gap:12px; padding:14px 16px;
       border-radius:14px;
-
-      /* цагаан текст + хар хүрээ, бараан panel */
       background:rgba(0, 0, 0, 0.623);
-      /* border:1px solid rgba(0,0,0,.85); */
       color:#fff; font-weight:800; letter-spacing:.2px;
-
       box-shadow:0 12px 36px rgba(0,0,0,.55);
       white-space:nowrap; opacity:0;
       transition:opacity .25s ease, left .25s ease, top .25s ease, transform .25s ease;
@@ -42,7 +34,6 @@
     .introbtn.mini{ transform:translate(-50%,-50%) scale(0.88); }
     .introbtn:active{ transform:translate(-50%,-50%) scale(0.96) }
 
-    /* ===== MENU ===== */
     #menu{
       position:fixed; inset:0; display:none; align-items:center; justify-content:center;
       z-index:var(--z-menu); background:rgba(0,0,0,0.35); backdrop-filter:blur(6px);
@@ -89,18 +80,15 @@
 <body>
   <div id="debug">DEBUG: boot…</div>
 
-  <!-- Tap fallback -->
   <div id="tapToStart"><button class="btn">▶ Эхлүүлэх (дуу нээх)</button></div>
   <button id="btnUnmute" class="btn">🔊 Дууг асаах</button>
 
-  <!-- ✅ INTRO BUTTONS (menu style) -->
   <div id="overlayIntroBtns">
     <div id="ibExercise"  class="introbtn">🏃 ДАСГАЛ</div>
     <div id="ibGrowth"    class="introbtn">🌱 ХӨГЖИЛ</div>
     <div id="ibKnowledge" class="introbtn">📘 ХИЧЭЭЛ</div>
   </div>
 
-  <!-- Animated Menu -->
   <div id="menu">
     <div class="menu-panel">
       <h2 class="menu-title">AR Меню</h2>
@@ -128,9 +116,6 @@
           </div>
         </div>
       </div>
-      <!-- <div class="row">
-        <button class="btn ghost" id="btnRestart">Интро дахин</button>
-      </div> -->
     </div>
   </div>
 
@@ -141,9 +126,9 @@
 <script>
 /* ===== CONFIG ===== */
 const INTRO_WEBM_URL     = "https://ariukcs1a.github.io/video/Video_01_alpha_audio.webm";
-const INTRO_MP4_URL      = "https://www.dropbox.com/scl/fi/hr8vxox334hpfi4x5kco1/Video-01.mov?rlkey=98jdj9xhjphrpa32nf8e9pa4p&e=2&st=sefz21y0&dl=0";
+const INTRO_MP4_URL      = "https://ariukcs1a.github.io/video/intro1_SBS.mp4";
 const EXERCISE_WEBM_URL  = "https://ariukcs1a.github.io/video/Video%2002_clean_100MB.webm";
-const EXERCISE_MP4_URL   = "https://www.dropbox.com/scl/fi/fv1c6jgxmp1j7x23dyubp/Video-02.mov?rlkey=jm33zhf2tamknkwyrquyxdv7o&st=06py1o5p&dl=0";
+const EXERCISE_MP4_URL   = "https://ariukcs1a.github.io/video/dasgal_SBS.mp4";
 
 const VIDEO_ROT_Z = 0;
 
@@ -154,14 +139,14 @@ const BTN_TIMELINE = [
   { id:'kn', t:[35.0, 37.0], u:-0.25, v: 0.02, show:true },
 ];
 
-/* Интро дууссаны дараах оффсет (px) */
+/* Интро дууссны дараах оффсет */
 const BTN_OFFSETS_LOCKED = {
   ex: { dx: -5,  dy: -28 },
   kn: { dx: -5,  dy:  28 },
   gr: { dx: 15,  dy:   0 },
 };
 
-const dbg=(m)=>document.getElementById('debug').textContent='DEBUG: '+m;
+const dbg =(m)=>document.getElementById('debug').textContent='DEBUG: '+m;
 const vIntro = document.getElementById('vidIntro');
 const vEx    = document.getElementById('vidExercise');
 const btnUnmute=document.getElementById('btnUnmute');
@@ -176,25 +161,28 @@ const introBtnEls = {
   kn: document.getElementById('ibKnowledge'),
 };
 
-/* ===== Sticky төлөв (u,v-г хадгална) ===== */
-const introBtnState = {
-  ex:{shown:false, u:null, v:null, x:0, y:0},
-  gr:{shown:false, u:null, v:null, x:0, y:0},
-  kn:{shown:false, u:null, v:null, x:0, y:0},
-};
+// ===== iOS илрүүлэлт (нэг удаа глобал)
+const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-function setSources(el, webm, mp4=""){
-  el.crossOrigin="anonymous";
-  el.setAttribute('playsinline','');
-  el.setAttribute('preload','auto');
-  el.innerHTML="";
-  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+// iOS биш бол WebM VP9 (alpha) хэрэглэнэ, iOS бол зөвхөн SBS MP4
+function setSources(el, webm = "", mp4 = "") {
+  el.crossOrigin = "anonymous";
+  el.setAttribute("playsinline", "");
+  el.setAttribute("preload", "auto");
+  el.innerHTML = "";
+
   if (isIOS && mp4) {
-    const s2=document.createElement('source'); s2.src=mp4; s2.type='video/mp4'; el.appendChild(s2);
-    if (webm){ const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1); }
-  } else {
-    if (webm){ const s1=document.createElement('source'); s1.src=webm; s1.type='video/webm; codecs="vp8,opus"'; el.appendChild(s1); }
-    if (mp4){  const s2=document.createElement('source'); s2.src=mp4;  s2.type='video/mp4'; el.appendChild(s2); }
+    const s = document.createElement("source");
+    s.src = mp4; s.type = "video/mp4";
+    el.appendChild(s);
+  } else if (webm) {
+    const s = document.createElement("source");
+    s.src = webm; s.type = 'video/webm; codecs="vp9,opus"';
+    el.appendChild(s);
+  } else if (mp4) {
+    const s = document.createElement("source");
+    s.src = mp4; s.type = "video/mp4";
+    el.appendChild(s);
   }
   el.load();
 }
@@ -296,29 +284,25 @@ function updateIntroButtons(){
     const seg = segOf(key);
     const st  = introBtnState[key];
 
-    // Сегмент дээр байвал тухайн локал u,v-г түгжинэ
     if (seg && seg.show){
       st.shown = true;
       st.u = seg.u; st.v = seg.v;
     }
 
-    // Хэрэв өмнө нь гарч ирсэн бол кадр бүрт world→screen проекц хийнэ
     if (st.shown && st.u != null && st.v != null){
       const w = worldToScreen(localOnPlane(st.u, st.v));
-
-      if (seg){ // сегмент дотор
+      if (seg){
         el.style.left = w.x + 'px';
         el.style.top  = w.y + 'px';
         el.classList.remove('mini');
-      } else {  // сегментээс гадуур (интро дундуур ч, дууссаны дараа ч)
+      } else {
         const off = BTN_OFFSETS_LOCKED[key] || {dx:0,dy:0};
         el.style.left = (w.x + off.dx) + 'px';
         el.style.top  = (w.y + off.dy) + 'px';
         el.classList.add('mini');
       }
-
       el.classList.add('show');
-      st.x = w.x; st.y = w.y; // (жирийн лог хадгалалт)
+      st.x = w.x; st.y = w.y;
     } else {
       el.classList.remove('show','mini');
     }
@@ -329,7 +313,7 @@ function updateIntroButtons(){
   proc('kn', introBtnEls.kn);
 }
 
-/* Меню харуулах (интро товчнууд хэвээр) */
+/* Меню харуулах */
 function showMenuOverlay(){
   menu.style.display='flex';
   menu.style.opacity='1';
@@ -359,7 +343,10 @@ function showMenuOverlay(){
   tracker=new ZT.InstantWorldTracker();
   anchor=new ZT.InstantWorldAnchorGroup(camera,tracker); scene.add(anchor);
 
-  plane=new THREE.Mesh(new THREE.PlaneGeometry(1,1), new THREE.MeshBasicMaterial({transparent:true, side:THREE.DoubleSide}));
+  plane=new THREE.Mesh(
+    new THREE.PlaneGeometry(1,1),
+    new THREE.MeshBasicMaterial({transparent:true, side:THREE.DoubleSide})
+  );
   anchor.add(plane);
 
   hookGestures();
@@ -367,16 +354,13 @@ function showMenuOverlay(){
   renderer.setAnimationLoop(()=>{
     if (!anchorSet) { tracker.setAnchorPoseFromCameraOffset(0,0,-1.5); anchorSet = true; }
     faceCameraNoRotate();
-
     camera.updateFrame(renderer);
     renderer.render(scene,camera);
-
     if (currentVideo===vIntro) updateIntroButtons();
   });
 
   document.addEventListener('visibilitychange', ()=>{ try{ document.hidden?camera.pause():camera.start(); }catch{} });
 
-  // Start intro
   try{ await startIntro_Auto(); }
   catch(e){
     tapLay.style.display='grid'; dbg('need user gesture to start with sound');
@@ -387,27 +371,12 @@ function showMenuOverlay(){
     try{ await startIntro_Auto(true); }catch(e){ dbg('after tap failed: '+(e?.message||e)); }
   });
 
-  // Меню → Дасгал
   document.getElementById('mExercise').addEventListener('click', async ()=>{ await startExerciseDirect(); });
-
-  // Restart intro
-  document.getElementById('btnRestart').addEventListener('click', async ()=>{
-    closeMenu();
-    try{ currentVideo && currentVideo.pause(); }catch{}
-
-    // төлөв цэвэрлэх
-    for (const k of ['ex','gr','kn']){
-      introBtnState[k].shown=false;
-      introBtnState[k].u=null; introBtnState[k].v=null;
-      introBtnEls[k].classList.remove('mini','show');
-    }
-    await startIntro_Auto(true);
-  });
 })();
 
 /* Intro flow */
 async function startIntro_Auto(fromTap=false){
-  document.getElementById('overlayIntroBtns').style.display = 'block';
+  overlayIntro.style.display = 'block';
   showIntroBtns = true;
 
   await ensureCamera();
@@ -416,11 +385,19 @@ async function startIntro_Auto(fromTap=false){
   setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL);
   setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL);
 
-  texIntro=texIntro||videoTexture(vIntro);
-  texEx   =texEx   ||videoTexture(vEx);
+  texIntro = texIntro || videoTexture(vIntro);
+  texEx    = texEx    || videoTexture(vEx);
 
-  currentVideo=vIntro;
-  plane.material.map=texIntro;
+  currentVideo = vIntro;
+
+  if (isIOS) {
+    plane.material?.dispose?.();
+    plane.material = makeSbsAlphaMaterial(texIntro);
+  } else {
+    plane.material.map = texIntro;
+    plane.material.transparent = true;
+    plane.material.needsUpdate = true;
+  }
 
   scaleFactor=1.35; applyScale();
 
@@ -437,7 +414,6 @@ async function startIntro_Auto(fromTap=false){
   dbg('intro playing');
 
   vIntro.onended=()=>{
-    // Дуусмагц мини хэвээр, world-track үргэлжилнэ (updateIntroButtons дотор оффсет хамаарна)
     ['ex','gr','kn'].forEach(id=>introBtnEls[id].classList.add('mini'));
     showMenuOverlay();
     dbg('intro ended → menu shown; intro buttons stay (mini, world-tracked).');
@@ -447,10 +423,9 @@ async function startIntro_Auto(fromTap=false){
 /* Menu */
 function closeMenu(){ menu.style.display='none'; }
 
-/* Exercise — шууд тоглуулах (интро товчнуудыг бүрэн нуух) */
+/* Exercise — шууд тоглуулах */
 async function startExerciseDirect(){
-  closeMenu(); // дасгал дээр меню огт харагдахгүй
-
+  closeMenu();
   overlayIntro.style.display = 'none';
   showIntroBtns = false;
   ['ex','gr','kn'].forEach(id => introBtnEls[id].classList.remove('show','mini'));
@@ -466,7 +441,16 @@ async function startExerciseDirect(){
   if (vEx.readyState>=1) fitPlaneToVideo(vEx);
   else await new Promise(r=>vEx.addEventListener('loadedmetadata', ()=>{fitPlaneToVideo(vEx); r();},{once:true}));
 
-  plane.material.map = texEx || (texEx = videoTexture(vEx));
+  texEx = texEx || videoTexture(vEx);
+
+  if (isIOS) {
+    plane.material?.dispose?.();
+    plane.material = makeSbsAlphaMaterial(texEx);
+  } else {
+    plane.material.map = texEx;
+    plane.material.transparent = true;
+    plane.material.needsUpdate = true;
+  }
 
   scaleFactor=1.35; applyScale();
   vEx.currentTime=0;
@@ -488,6 +472,38 @@ btnUnmute.addEventListener('click', async ()=>{
     btnUnmute.style.display='none';
   }catch(e){ dbg('unmute failed'); }
 });
+
+// iOS SBS MP4 → альфа сэргээх шэйдэр
+function makeSbsAlphaMaterial(tex){
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    uniforms: { map: { value: tex } },
+    vertexShader: `
+      varying vec2 vUv;
+      void main(){
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+      }`,
+    fragmentShader: `
+      precision highp float;
+      uniform sampler2D map;
+      varying vec2 vUv;
+      void main(){
+        // Зүүн талын хагас: RGB
+        vec3 rgb = texture2D(map, vec2(vUv.x * 0.5, vUv.y)).rgb;
+        // Баруун талын хагас: Alpha (R суваг)
+        float a  = texture2D(map, vec2(0.5 + vUv.x * 0.5, vUv.y)).r;
+        gl_FragColor = vec4(rgb, a);
+      }`
+  });
+}
 </script>
 </body>
 </html>
