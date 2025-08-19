@@ -21,14 +21,12 @@
     .introbtn{
       position:absolute; transform:translate(-50%,-50%);
       display:flex; align-items:center; gap:12px; padding:14px 16px;
-      border-radius:14px;
-      background:rgba(0, 0, 0, 0.623);
+      border-radius:14px; background:rgba(0, 0, 0, 0.623);
       color:#fff; font-weight:800; letter-spacing:.2px;
       box-shadow:0 12px 36px rgba(0,0,0,.55);
       white-space:nowrap; opacity:0;
       transition:opacity .25s ease, left .25s ease, top .25s ease, transform .25s ease;
-      user-select:none; pointer-events:none;
-      font-size:14px;
+      user-select:none; pointer-events:none; font-size:14px;
     }
     .introbtn.show{ opacity:1; }
     .introbtn.mini{ transform:translate(-50%,-50%) scale(0.88); }
@@ -161,10 +159,17 @@ const introBtnEls = {
   kn: document.getElementById('ibKnowledge'),
 };
 
-// ===== iOS илрүүлэлт (нэг удаа глобал)
+// ===== iOS илрүүлэлт
 const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-// iOS биш бол WebM VP9 (alpha) хэрэглэнэ, iOS бол зөвхөн SBS MP4
+/* ⚠️ ДУТСАН БАЙСАН: Sticky төлөв */
+const introBtnState = {
+  ex:{shown:false, u:null, v:null, x:0, y:0},
+  gr:{shown:false, u:null, v:null, x:0, y:0},
+  kn:{shown:false, u:null, v:null, x:0, y:0},
+};
+
+// iOS биш бол WebM VP9(alpha), iOS бол SBS MP4
 function setSources(el, webm = "", mp4 = "") {
   el.crossOrigin = "anonymous";
   el.setAttribute("playsinline", "");
@@ -184,7 +189,7 @@ function setSources(el, webm = "", mp4 = "") {
     s.src = mp4; s.type = "video/mp4";
     el.appendChild(s);
   }
-  el.load();
+  try { el.load(); } catch(e) {}
 }
 
 /* ===== AR Engine ===== */
@@ -210,19 +215,22 @@ function fitPlaneToVideo(el){
   applyScale();
 }
 function faceCameraNoRotate(){
+  if (!plane || !camera) return;
   plane.quaternion.copy(camera.quaternion);
   plane.rotation.z = VIDEO_ROT_Z;
 }
 async function ensureCamera(){
   const ok=await ZT.permissionRequest();
   if(!ok){ZT.permissionDeniedUI(); throw new Error('camera permission denied');}
-  try{camera.start();}catch{}
+  try{ camera.start(); }catch(e){}
   dbg('camera started');
 }
 function videoTexture(el){
   const t=new THREE.VideoTexture(el);
   t.colorSpace=THREE.SRGBColorSpace;
   t.flipY=true;
+  t.minFilter = THREE.LinearFilter;
+  t.magFilter = THREE.LinearFilter;
   return t;
 }
 
@@ -230,7 +238,7 @@ function videoTexture(el){
 function hookGestures(){
   addEventListener('touchstart', ()=>{}, {passive:true});
   addEventListener('touchmove', e=>{
-    if (e.touches.length===2){
+    if (e.touches.length===2 && plane){
       const d=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
       const k=d(e.touches[0],e.touches[1]);
       const prev=Number(plane.dataset_prevDist||k);
@@ -242,7 +250,7 @@ function hookGestures(){
       plane.dataset_prevDist = k;
     }
   },{passive:true});
-  addEventListener('touchend', ()=>{ plane.dataset_prevDist=""; }, {passive:true});
+  addEventListener('touchend', ()=>{ if(plane) plane.dataset_prevDist=""; }, {passive:true});
 
   addEventListener('wheel', e=>{
     scaleFactor=Math.min(MAX_S,Math.max(MIN_S,scaleFactor*(e.deltaY>0?0.95:1.05)));
@@ -354,7 +362,7 @@ function showMenuOverlay(){
   renderer.setAnimationLoop(()=>{
     if (!anchorSet) { tracker.setAnchorPoseFromCameraOffset(0,0,-1.5); anchorSet = true; }
     faceCameraNoRotate();
-    camera.updateFrame(renderer);
+    try { camera.updateFrame(renderer); } catch(e) {}
     renderer.render(scene,camera);
     if (currentVideo===vIntro) updateIntroButtons();
   });
@@ -467,6 +475,7 @@ async function startExerciseDirect(){
 /* Unmute */
 btnUnmute.addEventListener('click', async ()=>{
   try{
+    if (!currentVideo) return;
     currentVideo.muted=false;
     await currentVideo.play();
     btnUnmute.style.display='none';
