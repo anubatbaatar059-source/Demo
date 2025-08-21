@@ -70,9 +70,10 @@ canvas.webgl{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
 
 /* OTP Gate */
 #otpGate{
-  position:fixed;inset:0;display:none;place-items:center;z-index:var(--z-otp);
-  background:rgba(0,0,0,.65);backdrop-filter:blur(4px)
+  position:fixed; inset:0; display:grid; place-items:center;
+  z-index:var(--z-otp); background:rgba(0,0,0,.65); backdrop-filter:blur(4px);
 }
+#otpGate[hidden]{ display:none; }
 .otp-panel{
   width:min(520px,92vw);
   background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(255,255,255,.06));
