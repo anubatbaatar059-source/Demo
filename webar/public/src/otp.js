@@ -49,7 +49,7 @@ function setCooldown(sec=60){
 export async function ensureOtp(openCb){
   // openCb: баталгаажмагц юу хийх вэ (интро эхлүүлэх)
   if (isOtpVerified()){ openCb?.(); return; }
- 
+
   // UI setup
   els.gate.hidden=false; createInputs(); showError(""); els.wrap.hidden=true;
   els.send.onclick = () => {

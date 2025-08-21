@@ -1,13 +1,7 @@
 import { INTRO_WEBM_URL, INTRO_MP4_URL, EXERCISE_WEBM_URL, EXERCISE_MP4_URL } from "./config.js";
 import { isIOS, dbg } from "./utils.js";
-import {
-  initAR, ensureCamera, onFrame, setSources,
-  videoTexture, fitPlaneToVideo, makeSbsAlphaMaterial, applyScale
-} from "./ar.js";
-import {
-  bindIntroButtons, updateIntroButtons, showMenuOverlay,
-  closeMenu, stopIntroButtons, initIntroMenuCallbacks
-} from "./ui.js";
+import { initAR, ensureCamera, onFrame, setSources, videoTexture, fitPlaneToVideo, makeSbsAlphaMaterial, applyScale } from "./ar.js";
+import { bindIntroButtons, updateIntroButtons, showMenuOverlay, closeMenu, stopIntroButtons } from "./ui.js";
 import { ensureOtp } from "./otp.js";
 
 // DOM
@@ -25,134 +19,70 @@ await ensureOtp(startIntroFlow);
 
 // tap-to-start fallback
 tapLay.addEventListener("pointerdown", async ()=>{
-  tapLay.style.display = "none";
-  try { await startIntroFlow(true); }
-  catch(e){ dbg("after tap failed: " + (e?.message || e)); }
+  tapLay.style.display="none";
+  try{ await startIntroFlow(true); }catch(e){ dbg("after tap failed: "+(e?.message||e)); }
 });
 
-// Меню товч (том overlay-оос шууд дасгал руу)
-document.getElementById("mExercise")?.addEventListener("click", startExerciseDirect);
+// Меню товч
+document.getElementById("mExercise").addEventListener("click", startExerciseDirect);
 
-// render callback (интро үед world-tracked меню/товчуудыг хөдөлгөх)
-onFrame(()=>{ if (currentVideo === vIntro) updateIntroButtons(); });
+// render callback (интро үед world-tracked товчийг хөдөлгөх)
+onFrame(()=>{ if (currentVideo===vIntro) updateIntroButtons(); });
 
 // ===== flows =====
 async function startIntroFlow(fromTap=false){
   bindIntroButtons(vIntro);
 
-  // segmented меню action-ууд
-  initIntroMenuCallbacks({
-    onExercise: () => startExerciseDirect(),
-    onGrowth:   () => { closeMenu(); dbg("🌱 Growth - coming soon"); },
-    onKnowledge:() => { closeMenu(); dbg("📘 Knowledge - coming soon"); },
-  });
-
   await ensureCamera();
 
-  setSources(vIntro, INTRO_WEBM_URL,  INTRO_MP4_URL,  isIOS);
+  setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL, isIOS);
   setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL, isIOS);
 
   const texIntro = videoTexture(vIntro);
   if (isIOS) {
-    vIntro.hidden = false;
-    vIntro.onloadedmetadata = () => fitPlaneToVideo(vIntro);
+    vIntro.hidden=false;
+    vIntro.onloadedmetadata = ()=>fitPlaneToVideo(vIntro);
     planeUseShader(texIntro);
   } else {
     planeUseMap(texIntro);
-    if (vIntro.readyState >= 1) fitPlaneToVideo(vIntro);
+    if (vIntro.readyState>=1) fitPlaneToVideo(vIntro);
     else vIntro.addEventListener("loadedmetadata", ()=>fitPlaneToVideo(vIntro), { once:true });
   }
 
   currentVideo = vIntro;
-  try {
-    vIntro.muted = false;
-    await vIntro.play();
-    btnUnmute.style.display = "none";
-  } catch {
-    try {
-      vIntro.muted = true;
-      await vIntro.play();
-      btnUnmute.style.display = "inline-block";
-    } catch(e){
-      if (!fromTap){ tapLay.style.display = "grid"; throw e; }
-    }
+  try { vIntro.muted=false; await vIntro.play(); btnUnmute.style.display="none"; }
+  catch {
+    try { vIntro.muted=true; await vIntro.play(); btnUnmute.style.display="inline-block"; }
+    catch(e){ if(!fromTap){ tapLay.style.display="grid"; throw e; } }
   }
   applyScale();
   dbg("intro playing");
 
-  // Интро дуусахад: жижиг sticky + том меню нээх
-  vIntro.onended = () => {
-    try {
-      ["ex","gr","kn"].forEach(id=>{
-        const el = document.getElementById("ib"+({ex:"Exercise",gr:"Growth",kn:"Knowledge"})[id]);
-        el?.classList.add("mini");
-      });
-    } catch {}
-    showMenuOverlay();
-    dbg("intro ended → menu shown; intro buttons sticky.");
-  };
+  vIntro.onended = () => { ["ex","gr","kn"].forEach(id=>document.getElementById("ib"+({ex:"Exercise",gr:"Growth",kn:"Knowledge"})[id]).classList.add("mini")); showMenuOverlay(); dbg("intro ended → menu shown; intro buttons sticky."); };
 }
 
 async function startExerciseDirect(){
-  closeMenu();
-  stopIntroButtons();
+  closeMenu(); stopIntroButtons();
   await ensureCamera();
-
-  try { currentVideo?.pause?.(); } catch {}
-
+  try{ currentVideo?.pause?.(); }catch{}
   setSources(vEx, EXERCISE_WEBM_URL, EXERCISE_MP4_URL, isIOS);
   const texEx = videoTexture(vEx);
-  if (isIOS) planeUseShader(texEx);
-  else       planeUseMap(texEx);
+  if (isIOS) planeUseShader(texEx); else planeUseMap(texEx);
 
-  if (vEx.readyState >= 1) fitPlaneToVideo(vEx);
-  else {
-    await new Promise(r => vEx.addEventListener("loadedmetadata", ()=>{
-      fitPlaneToVideo(vEx); r();
-    }, { once:true }));
-  }
+  if (vEx.readyState>=1) fitPlaneToVideo(vEx);
+  else await new Promise(r => vEx.addEventListener("loadedmetadata", ()=>{ fitPlaneToVideo(vEx); r(); }, { once:true }));
 
-  vEx.currentTime = 0;
-  currentVideo = vEx;
-
-  try {
-    vEx.muted = false;
-    await vEx.play();
-    btnUnmute.style.display = "none";
-  } catch {
-    try {
-      vEx.muted = true;
-      await vEx.play();
-      btnUnmute.style.display = "inline-block";
-    } catch {}
-  }
+  vEx.currentTime=0; currentVideo=vEx;
+  try { vEx.muted=false; await vEx.play(); btnUnmute.style.display="none"; }
+  catch { try { vEx.muted=true; await vEx.play(); btnUnmute.style.display="inline-block"; } catch{} }
   dbg("exercise playing (AR, no menu).");
 }
 
-// Texture → material helper-ууд
-function planeUseMap(tex){
-  import("./ar.js").then(({ plane }) => {
-    plane.material.map = tex;
-    plane.material.transparent = true;
-    plane.material.needsUpdate = true;
-  });
-}
-function planeUseShader(tex){
-  import("./ar.js").then(({ plane, makeSbsAlphaMaterial }) => {
-    plane.material?.dispose?.();
-    plane.material = makeSbsAlphaMaterial(tex);
-    plane.material.needsUpdate = true;
-  });
-}
+function planeUseMap(tex){ import("./ar.js").then(({ plane }) => { plane.material.map = tex; plane.material.transparent = true; plane.material.needsUpdate = true; }); }
+function planeUseShader(tex){ import("./ar.js").then(({ plane }) => { plane.material?.dispose?.(); plane.material = makeSbsAlphaMaterial(tex); }); }
 
 // Unmute
 btnUnmute.addEventListener("click", async ()=>{
-  try {
-    if (!currentVideo) return;
-    currentVideo.muted = false;
-    await currentVideo.play();
-    btnUnmute.style.display = "none";
-  } catch {
-    dbg("unmute failed");
-  }
+  try { if (!currentVideo) return; currentVideo.muted=false; await currentVideo.play(); btnUnmute.style.display="none"; }
+  catch { dbg("unmute failed"); }
 });
