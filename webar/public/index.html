@@ -8,7 +8,7 @@
   <!-- Main styles -->
   <link rel="stylesheet" href="./styles/main.css">
 
-  <!-- Service Worker cache унтраах -->
+  <!-- ✅ Service Worker cache унтраах (хуучин vendor түгжихээс сэргийлнэ) -->
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
@@ -17,6 +17,7 @@
 
   <!-- Vendor (UMD) -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js" defer></script>
+  <!-- ✅ ЛОКАЛ vendor-аа больж UMD-ийг CDN-ээс яг энэ хувилбараар ачаал -->
   <script src="https://unpkg.com/@zappar/zappar-threejs@2.5.2/umd/zappar-threejs.js" defer></script>
 
   <!-- Vendor бэлэн болмогц Promise-аар авах -->
@@ -48,77 +49,30 @@
       <div class="menu-grid">
         <div class="card" id="mExercise">
           <div class="icon">🏃</div>
-          <div>
-            <div class="ttl">Дасгал</div>
-            <div style="opacity:.8;font-size:12px">Шууд тоглуулах</div>
-          </div>
+          <div><div class="ttl">Дасгал</div><div style="opacity:.8;font-size:12px">Шууд тоглуулах</div></div>
         </div>
-        <div class="card" id="mGrowth">
-          <div class="icon">🌱</div>
-          <div>
-            <div class="ttl">Хувь хүний хөгжил</div>
-            <div style="opacity:.8;font-size:12px">Тун удахгүй</div>
-          </div>
-        </div>
-        <div class="card" id="mKnowledge">
-          <div class="icon">📘</div>
-          <div>
-            <div class="ttl">Хичээл</div>
-            <div style="opacity:.8;font-size:12px">Тун удахгүй</div>
-          </div>
-        </div>
+        <div class="card" id="mGrowth"><div class="icon">🌱</div><div><div class="ttl">Хувь хүний хөгжил</div><div style="opacity:.8;font-size:12px">Тун удахгүй</div></div></div>
+        <div class="card" id="mKnowledge"><div class="icon">📘</div><div><div class="ttl">Хичээл</div><div style="opacity:.8;font-size:12px">Тун удахгүй</div></div></div>
       </div>
     </div>
   </div>
 
-  <!-- OTP Gate (v2 minimal) -->
+  <!-- OTP Gate -->
   <div id="otpGate" hidden>
-    <div class="otpv2">
-      <div class="otp-head">
-        <div class="otp-icon">📱</div>
-        <div class="otp-title-wrap">
-          <h3 class="otp-title">Утас баталгаажуулах</h3>
-          <p class="otp-sub">Дараа нь 6 оронтой код SMS-ээр ирнэ.</p>
+    <div class="otp-panel">
+      <h3 class="otp-title">баталгаажуулалт</h3>
+      <p class="otp-sub">Утасны дугаараа оруулж 6 оронтой кодоор баталгаажуулна уу.</p>
+      <div class="otp-field"><span>+976</span><input id="otpPhone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="Утасны дугаар (8 цифр)" maxlength="8"></div>
+      <button id="btnSendCode" class="btn full">Код авах</button>
+      <div id="otpCodeWrap" class="otp-code-wrap" hidden>
+        <div class="otp-inputs" id="otpInputs"></div>
+        <button id="btnVerifyCode" class="btn full">Баталгаажуулах</button>
+        <div class="otp-meta"><span id="otpTimer">60</span> сек дараа дахин илгээх боломжтой.
+          <div><button id="btnResend" class="btn ghost" disabled>Дахин илгээх</button></div>
         </div>
       </div>
-
-      <!-- Алхам A: Утас оруулах -->
-      <div id="stepPhone" class="step shown">
-        <label class="field">
-          <span class="prefix">+976</span>
-          <input id="otpPhone" type="tel" inputmode="numeric" autocomplete="tel"
-                 placeholder="Утасны дугаар (8 цифр)" maxlength="8">
-        </label>
-        <button id="btnNext" class="btn full">Код авах</button>
-      </div>
-
-      <!-- Алхам B: Код оруулах -->
-      <div id="stepCode" class="step">
-        <div class="otp-to">
-          <div class="otp-icon small">🔐</div>
-          <div class="to-text">
-            <div class="mini">Код илгээгдсэн дугаар</div>
-            <div class="phone" id="otpToPhone">+976 •••• ••••</div>
-          </div>
-          <button id="btnBack" class="ghost sm">Засах</button>
-        </div>
-
-        <div id="otpInputs" class="code-grid"></div>
-
-        <button id="btnVerify" class="btn full">Баталгаажуулах</button>
-
-        <div class="row-center">
-          <span class="chip" id="cooldownChip"><span id="otpTimer">60</span> сек</span>
-          <button id="btnResend" class="ghost" disabled>Дахин илгээх</button>
-        </div>
-      </div>
-
-      <div id="otpError" class="otp-error"></div>
-
-      <div class="devtools">
-        <span class="hint">Туршилтын код: <b>000000</b></span>
-        <button id="btnOtpReset" class="ghost sm">Дахин турших</button>
-      </div>
+      <div class="otp-error" id="otpError"></div>
+      <div class="devtools"><span class="hint">Туршилтын код: <b>000000</b></span><button id="btnOtpReset" class="btn ghost">Дахин турших</button></div>
     </div>
   </div>
 
