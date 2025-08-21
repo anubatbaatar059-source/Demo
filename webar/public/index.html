@@ -4,13 +4,24 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
   <title>WebAR — Intro → Меню → Дасгал</title>
+
+  <!-- Main styles -->
   <link rel="stylesheet" href="./styles/main.css">
+
+  <!-- ✅ Service Worker cache унтраах (хуучин vendor түгжихээс сэргийлнэ) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+    }
+  </script>
+
   <!-- Vendor (UMD) -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js" defer></script>
-  <script src="./vendor/zappar-threejs.js" defer></script>
-  
+  <!-- ✅ ЛОКАЛ vendor-аа больж UMD-ийг CDN-ээс яг энэ хувилбараар ачаал -->
+  <script src="https://unpkg.com/@zappar/zappar-threejs@2.5.2/umd/zappar-threejs.js" defer></script>
+
+  <!-- Vendor бэлэн болмогц Promise-аар авах -->
   <script>
-    // vendor бэлэн болмогц амархан авах Promise
     window.__depsReady = new Promise(res => addEventListener('load', () => {
       res({ THREE: window.THREE, ZapparThree: window.ZapparThree });
     }, { once:true }));
@@ -69,7 +80,7 @@
   <video id="vidIntro" playsinline preload="auto" crossorigin="anonymous" hidden></video>
   <video id="vidExercise" playsinline preload="auto" loop crossorigin="anonymous" hidden></video>
 
-  <!-- Таны код (ES modules) -->
+  <!-- Танай модулиуд -->
   <script type="module" src="./src/app.js"></script>
 </body>
 </html>

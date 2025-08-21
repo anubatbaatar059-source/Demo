@@ -1,4 +1,4 @@
-// webar/public/src/ar.js
+// public/src/ar.js
 import { VIDEO_ROT_Z } from "./config.js";
 import { dbg } from "./utils.js";
 
@@ -10,8 +10,11 @@ const MIN_S = 0.6, MAX_S = 3;
 let onFrameCb = null;
 
 export async function initAR() {
-  // Vendor бүрэн ачаалсны дараа авна
   ({ THREE, ZapparThree: ZT } = await window.__depsReady);
+
+  if (!window.isSecureContext) {
+    dbg("site must be HTTPS/secure context for camera");
+  }
 
   if (ZT.browserIncompatible()) {
     ZT.browserIncompatibleUI();
@@ -34,7 +37,7 @@ export async function initAR() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   });
 
-  // GL context-ийг Zappar-т өгнө
+  // GL → Zappar
   ZT.glContextSet(renderer.getContext());
 
   // Camera / Scene
@@ -47,78 +50,65 @@ export async function initAR() {
   anchor = new ZT.InstantWorldAnchorGroup(camera, tracker);
   scene.add(anchor);
 
-  // Видео зурах хавтгай
+  // Video plane
   plane = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1),
     new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide })
   );
   anchor.add(plane);
 
-  // Gesture (zoom)
+  // Gestures
   hookGestures();
 
   // Render loop
   let anchorSet = false;
   renderer.setAnimationLoop(() => {
-    if (!anchorSet) {
-      tracker.setAnchorPoseFromCameraOffset(0, 0, -1.5);
-      anchorSet = true;
-    }
+    if (!anchorSet) { tracker.setAnchorPoseFromCameraOffset(0, 0, -1.5); anchorSet = true; }
     faceCameraNoRotate();
-    try {
-      camera.updateFrame(renderer);
-    } catch {}
+    try { camera.updateFrame(renderer); } catch {}
     renderer.render(scene, camera);
     onFrameCb?.();
   });
 
-  // App visible ↔ hidden
+  // Visibility/focus
   document.addEventListener("visibilitychange", () => {
-    try {
-      document.hidden ? camera.pause() : camera.start();
-    } catch {}
+    try { document.hidden ? camera.pause() : camera.start(); } catch {}
   });
-  // App фокуст ормогц (зарим мобайл дээр хэрэгтэй)
-  window.addEventListener("focus", () => {
-    try {
-      camera.start();
-    } catch {}
-  });
+  window.addEventListener("focus", () => { try { camera.start(); } catch {} });
 
-  // WebGL context хамгаалалт
+  // WebGL context guards
   const gl = renderer.getContext();
   gl.canvas.addEventListener("webglcontextlost", (e) => {
     e.preventDefault();
     dbg("webgl context LOST");
   });
   gl.canvas.addEventListener("webglcontextrestored", () => {
-    ZT.glContextSet(renderer.getContext()); // Zappar-д дахин өгнө
+    ZT.glContextSet(renderer.getContext());
     scene.background = camera.backgroundTexture;
-    try {
-      camera.start();
-    } catch {}
+    try { camera.start(); } catch {}
     dbg("webgl context RESTORED + camera restarted");
   });
 
   dbg("AR ready");
 }
 
-export function onFrame(cb) {
-  onFrameCb = cb;
-}
+export function onFrame(cb) { onFrameCb = cb; }
 
-// Камерын зөв асалт + лог
+// Камер зөв асаалт
 export async function ensureCamera() {
   dbg("asking camera permission…");
   try {
     const ok = await ZT.permissionRequest();
     dbg("permission result: " + ok);
-    if (!ok) {
-      ZT.permissionDeniedUI();
-      throw new Error("camera permission denied");
-    }
-    await camera.start(); // албан ёсоор хүлээгээд асаана
-    dbg("camera started");
+    if (!ok) { ZT.permissionDeniedUI(); throw new Error("camera permission denied"); }
+
+    await camera.start();
+
+    // 🔑 Зарим төхөөрөмж дээр backgroundTexture binding-д 1 frame хэрэгтэй
+    scene.background = camera.backgroundTexture;
+    await new Promise(r => requestAnimationFrame(r));
+
+    dbg("camera started (bg bound)");
   } catch (e) {
     dbg("camera start failed: " + (e?.message || e));
     throw e;
@@ -134,24 +124,19 @@ export function setSources(videoEl, webm = "", mp4 = "", forceMP4 = false) {
 
   if (forceMP4 && mp4) {
     const s = document.createElement("source");
-    s.src = mp4;
-    s.type = "video/mp4";
+    s.src = mp4; s.type = "video/mp4";
     videoEl.appendChild(s);
   } else if (webm) {
     const s = document.createElement("source");
-    s.src = webm;
-    s.type = 'video/webm; codecs="vp9,opus"';
+    s.src = webm; s.type = 'video/webm; codecs="vp9,opus"';
     videoEl.appendChild(s);
   } else if (mp4) {
     const s = document.createElement("source");
-    s.src = mp4;
-    s.type = "video/mp4";
+    s.src = mp4; s.type = "video/mp4";
     videoEl.appendChild(s);
   }
 
-  try {
-    videoEl.load();
-  } catch {}
+  try { videoEl.load(); } catch {}
 }
 
 export function videoTexture(el) {
@@ -217,7 +202,7 @@ export function makeSbsAlphaMaterial(tex) {
   });
 }
 
-// ===== Туслах функцууд =====
+// ===== Туслах =====
 export function worldToScreen(v) {
   if (!renderer || !camera) return { x: -9999, y: -9999 };
   const rect = renderer.domElement.getBoundingClientRect();
@@ -238,41 +223,24 @@ export function localPointOnPlane(u, v) {
 function hookGestures() {
   addEventListener("touchstart", () => {}, { passive: true });
 
-  addEventListener(
-    "touchmove",
-    (e) => {
-      if (e.touches.length === 2 && plane) {
-        const d = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-        const k = d(e.touches[0], e.touches[1]);
-        const prev = Number(plane.dataset_prevDist || k);
-        if (prev > 0) {
-          const ratio = k / prev;
-          scaleFactor = Math.min(MAX_S, Math.max(MIN_S, scaleFactor * ratio));
-          applyScale();
-        }
-        plane.dataset_prevDist = k;
+  addEventListener("touchmove", (e) => {
+    if (e.touches.length === 2 && plane) {
+      const d = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      const k = d(e.touches[0], e.touches[1]);
+      const prev = Number(plane.dataset_prevDist || k);
+      if (prev > 0) {
+        const ratio = k / prev;
+        scaleFactor = Math.min(MAX_S, Math.max(MIN_S, scaleFactor * ratio));
+        applyScale();
       }
-    },
-    { passive: true }
-  );
+      plane.dataset_prevDist = k;
+    }
+  }, { passive: true });
 
-  addEventListener(
-    "touchend",
-    () => {
-      if (plane) plane.dataset_prevDist = "";
-    },
-    { passive: true }
-  );
+  addEventListener("touchend", () => { if (plane) plane.dataset_prevDist = ""; }, { passive: true });
 
-  addEventListener(
-    "wheel",
-    (e) => {
-      scaleFactor = Math.min(
-        MAX_S,
-        Math.max(MIN_S, scaleFactor * (e.deltaY > 0 ? 0.95 : 1.05))
-      );
-      applyScale();
-    },
-    { passive: true }
-  );
+  addEventListener("wheel", (e) => {
+    scaleFactor = Math.min(MAX_S, Math.max(MIN_S, scaleFactor * (e.deltaY > 0 ? 0.95 : 1.05)));
+    applyScale();
+  }, { passive: true });
 }
