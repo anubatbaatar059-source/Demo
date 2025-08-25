@@ -122,22 +122,27 @@ export function setSources(videoEl, webm = "", mp4 = "", forceMP4 = false) {
   videoEl.setAttribute("preload", "auto");
   videoEl.innerHTML = "";
 
+  const add = (src, type) => {
+    if (!src) return;
+    const s = document.createElement("source");
+    s.src = src;
+    s.type = type; // зөвхөн контейнерын MIME (кодек заахгүй)
+    videoEl.appendChild(s);
+  };
+
+  // iOS дээр MP4-ыг нэн тэргүүнд → дараа нь WEBM fallback
+  // (Android/Chrome дээр урвуу эрэмбэ)
   if (forceMP4 && mp4) {
-    const s = document.createElement("source");
-    s.src = mp4; s.type = "video/mp4";
-    videoEl.appendChild(s);
-  } else if (webm) {
-    const s = document.createElement("source");
-    s.src = webm; s.type = 'video/webm; codecs="vp9,opus"';
-    videoEl.appendChild(s);
-  } else if (mp4) {
-    const s = document.createElement("source");
-    s.src = mp4; s.type = "video/mp4";
-    videoEl.appendChild(s);
+    add(mp4,  "video/mp4");
+    add(webm, "video/webm");
+  } else {
+    add(webm, "video/webm"); // VP8/VP9 алинд нь таарах
+    add(mp4,  "video/mp4");
   }
 
   try { videoEl.load(); } catch {}
 }
+
 
 export function videoTexture(el) {
   const t = new THREE.VideoTexture(el);

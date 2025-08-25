@@ -1,8 +1,23 @@
-import { INTRO_WEBM_URL, INTRO_MP4_URL, EXERCISE_WEBM_URL, EXERCISE_MP4_URL } from "./config.js";
+// app.js — Firestore-оос уншдаг хувилбар (Intro эхэлж тоглоно, дуусах хүртэл lock)
+
 import { isIOS, dbg } from "./utils.js";
-import { initAR, ensureCamera, onFrame, setSources, videoTexture, fitPlaneToVideo, makeSbsAlphaMaterial, applyScale } from "./ar.js";
-import { bindIntroButtons, updateIntroButtons, showMenuOverlay, closeMenu, stopIntroButtons } from "./ui.js";
+import {
+  initAR, ensureCamera, onFrame,
+  setSources, videoTexture, fitPlaneToVideo,
+  makeSbsAlphaMaterial, applyScale
+} from "./ar.js";
+import {
+  bindIntroButtons, updateIntroButtons,
+  showMenuOverlay, closeMenu, stopIntroButtons
+} from "./ui.js";
 import { ensureOtp } from "./otp.js";
+
+// 🔁 Firestore-оос унших нэмэлтүүд
+import {
+  fetchIntro,
+  fetchExercisesByLocation,
+  resolveLocationId
+} from "./data/videos.js";
 
 // ====== Geolocation helpers (энгийн, дотоод) ======
 let geoWatchId = null;
@@ -39,6 +54,14 @@ const btnUnmute = document.getElementById("btnUnmute");
 const tapLay = document.getElementById("tapToStart");
 let currentVideo = null;
 
+// Exercises-ийн кэш
+let EX_LIST = [];            // [{ id, name, sources:[{format,url},...] }, ...]
+let SELECTED_EX = null;      // сонгосон бичлэг
+
+// ✅ Intro control flags
+let introStarting = false;   // аль хэдийн intro эхлэж байгаа эсэх
+let introDone     = false;   // intro бүрэн дууссан эсэх
+
 // ====== main ======
 await initAR();
 
@@ -59,23 +82,43 @@ tapLay.addEventListener("pointerdown", async ()=>{
   try{ await startIntroFlow(true); }catch(e){ dbg("after tap failed: "+(e?.message||e)); }
 });
 
-// Меню товч
-document.getElementById("mExercise")?.addEventListener("click", startExerciseDirect);
+// Меню товч (default: эхний exercise-г тоглуулна)
+document.getElementById("mExercise")?.addEventListener("click", ()=>{
+  // 🔒 Intro дуусаагүй бол хориглоно
+  if (!introDone) { dbg("Please watch the intro first."); return; }
+  SELECTED_EX = SELECTED_EX || EX_LIST?.[0] || null;
+  startExerciseDirect();
+});
 
 // render callback (интро үед world-tracked UI-г хөдөлгөх)
 onFrame(()=>{ if (currentVideo===vIntro) updateIntroButtons(); });
 
 // ===== flows =====
 async function startIntroFlow(fromTap=false){
-  bindIntroButtons(vIntro);
+  // 🔒 Давхар дуудагдах/skip хийхээс хамгаална
+  if (introStarting || introDone) return;
+  introStarting = true;
 
+  bindIntroButtons(vIntro);
   await ensureCamera();
 
-  setSources(vIntro, INTRO_WEBM_URL, INTRO_MP4_URL, isIOS);
-  setSources(vEx,    EXERCISE_WEBM_URL, EXERCISE_MP4_URL, isIOS);
+  // ---------- 1) Firestore → Intro
+  const introDoc = await fetchIntro();
+  if (!introDoc || !introDoc.sources?.length){
+    dbg("intro source not found"); return;
+  }
+  const fmt = pickFormats(introDoc.sources);
+  setSources(vIntro, fmt.webm, fmt.mp4, false);
 
+  // ---------- 2) Firestore → Exercises (байршлаар)
+  const locParam = new URL(location.href).searchParams.get("loc") || "";
+  const locationId = await resolveLocationId(locParam);
+  EX_LIST = locationId ? await fetchExercisesByLocation(locationId) : [];
+  SELECTED_EX = EX_LIST?.[0] || null;
+
+  // ---------- 3) Intro видеог AR plane дээр байрлуулж тоглуулах
   const texIntro = videoTexture(vIntro);
-  if (isIOS) {
+  if (fmt.isSbs) { // SBS бол шэйдэр
     vIntro.hidden = false;
     vIntro.onloadedmetadata = ()=>fitPlaneToVideo(vIntro);
     planeUseShader(texIntro);
@@ -102,34 +145,43 @@ async function startIntroFlow(fromTap=false){
     startGeoWatch((pos, err)=>{
       if (err) { dbg("GPS watch error: " + (err?.message||err)); return; }
       dbg(fmtLoc(pos));
-      // эндээс pos.coords.latitude/longitude ашиглаад контент/UX-ээ өөрчилж болно
     });
   }catch(e){ dbg("GPS watch failed: " + (e?.message||e)); }
 
   // Интро дуусахад: sticky + том меню
   vIntro.onended = () => {
+    introDone = true; // ✅ Intro played бүрэн
     try {
       ["ex","gr","kn"].forEach(id=>{
         const el = document.getElementById("ib"+({ex:"Exercise",gr:"Growth",kn:"Knowledge"})[id]);
         el?.classList.add("mini");
       });
     } catch {}
+    if (!EX_LIST?.length) dbg("no exercises for this location");
     showMenuOverlay();
     dbg("intro ended → menu shown; intro buttons sticky.");
   };
 }
 
 async function startExerciseDirect(){
-  closeMenu(); 
+  // 🔒 Intro дуустал дасгал руу оруулахгүй
+  if (!introDone) { dbg("Please watch the intro first."); return; }
+
+  closeMenu();
   stopIntroButtons();
   stopGeoWatch();     // ✅ дасгал руу ороход GPS watch-ийг унтраана
   await ensureCamera();
 
   try{ currentVideo?.pause?.(); }catch{}
 
-  setSources(vEx, EXERCISE_WEBM_URL, EXERCISE_MP4_URL, isIOS);
+  if (!SELECTED_EX){
+    dbg("no selected exercise"); return;
+  }
+  const fmtEx = pickFormats(SELECTED_EX.sources || []);
+  setSources(vEx, fmtEx.webm, fmtEx.mp4, false);
+
   const texEx = videoTexture(vEx);
-  if (isIOS) planeUseShader(texEx); else planeUseMap(texEx);
+  if (fmtEx.isSbs) planeUseShader(texEx); else planeUseMap(texEx);
 
   if (vEx.readyState>=1) fitPlaneToVideo(vEx);
   else await new Promise(r => vEx.addEventListener("loadedmetadata", ()=>{ fitPlaneToVideo(vEx); r(); }, { once:true }));
@@ -157,6 +209,31 @@ function planeUseShader(tex){
     plane.material.needsUpdate = true;
   });
 }
+
+// Formats → setSources-т таарах байдлаар салгаж авах
+// app.js доторх helpers — HLS-ийг iOS-д 1-т тавина
+function pickFormats(srcs){
+  const m = {};
+  (srcs||[]).forEach(s=>{
+    const f = (s.format||"").toLowerCase();
+    if (f === "mp4_sbs") m.mp4_sbs = s.url;
+    else if (f.includes("webm")) m.webm = s.url;
+    else if (f.includes("mp4"))  m.mp4  = s.url;
+    if (f.includes("hls") || s.url?.endsWith(".m3u8")) m.hls = s.url;
+  });
+
+  if (isIOS) {
+    if (m.hls)     return { webm: "", mp4: m.hls,     isSbs:false, type:"hls" }; // HLS 1-т
+    if (m.mp4_sbs) return { webm: "", mp4: m.mp4_sbs, isSbs:true,  type:"mp4" };
+    if (m.mp4)     return { webm: "", mp4: m.mp4,     isSbs:false, type:"mp4" };
+    if (m.webm)    return { webm: m.webm, mp4:"",     isSbs:false, type:"webm" };
+  }
+  if (m.webm)     return { webm: m.webm, mp4:"",      isSbs:false, type:"webm" };
+  if (m.mp4)      return { webm:"",     mp4: m.mp4,   isSbs:false, type:"mp4" };
+  if (m.mp4_sbs)  return { webm:"",     mp4: m.mp4_sbs,isSbs:true, type:"mp4" };
+  return { webm:"", mp4:"", isSbs:false, type:"" };
+}
+
 
 // Unmute
 btnUnmute.addEventListener("click", async ()=>{

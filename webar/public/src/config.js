@@ -1,10 +1,10 @@
 export const VIDEO_ROT_Z = 0;
 
-// алсын URL-ууд (локал хэрэглэвэл public/assets/video/ руу тавиад линкээ солиорой)
-export const INTRO_WEBM_URL    = "https://res.cloudinary.com/djailgt2g/video/upload/v1755665483/webar/video/aymmoaxnpoie2avqemcc.webm";
-export const INTRO_MP4_URL     = "https://ariukcs1a.github.io/video/intro1_SBS.mp4";
-export const EXERCISE_WEBM_URL = "https://res.cloudinary.com/djailgt2g/video/upload/v1755575236/webar/video/atdd74gkrkpynzvcpcrj.webm";
-export const EXERCISE_MP4_URL  = "https://ariukcs1a.github.io/video/dasgal_SBS.mp4";
+// // алсын URL-ууд (локал хэрэглэвэл public/assets/video/ руу тавиад линкээ солиорой)
+// export const INTRO_WEBM_URL    = "https://res.cloudinary.com/djailgt2g/video/upload/v1755665483/webar/video/aymmoaxnpoie2avqemcc.webm";
+// export const INTRO_MP4_URL     = "https://ariukcs1a.github.io/video/intro1_SBS.mp4";
+// export const EXERCISE_WEBM_URL = "https://res.cloudinary.com/djailgt2g/video/upload/v1755575236/webar/video/atdd74gkrkpynzvcpcrj.webm";
+// export const EXERCISE_MP4_URL  = "https://ariukcs1a.github.io/video/dasgal_SBS.mp4";
 
 // интро товч world-track (u,v: -1..+1)
 export const BTN_TIMELINE = [
