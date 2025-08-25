@@ -65,19 +65,18 @@ let introDone     = false;   // intro бүрэн дууссан эсэх
 // ====== main ======
 await initAR();
 
-// OTP → амжилттай бол: эхлээд GPS (алдаа бол зүгээр алгасна) → дараа нь интро
-await ensureOtp(async ()=>{
-  try{
-    const pos = await getGeoOnce();
-    dbg(fmtLoc(pos));
-  }catch(e){
-    dbg("GPS error: " + (e?.message||e));
-  }
-  await startIntroFlow(true);
-});
+// 🔐 Эхлээд OTP → дараа нь GPS (алдаа бол алгасна) → интро
+await ensureOtp(); // callback хэрэггүй — resolve болтол хүлээнэ
+try{
+  const pos = await getGeoOnce();
+  dbg(fmtLoc(pos));
+}catch(e){
+  dbg("GPS error: " + (e?.message||e));
+}
+await startIntroFlow(true);
 
 // tap-to-start fallback
-tapLay.addEventListener("pointerdown", async ()=>{
+tapLay?.addEventListener("pointerdown", async ()=>{
   tapLay.style.display="none";
   try{ await startIntroFlow(true); }catch(e){ dbg("after tap failed: "+(e?.message||e)); }
 });
@@ -99,68 +98,74 @@ async function startIntroFlow(fromTap=false){
   if (introStarting || introDone) return;
   introStarting = true;
 
-  bindIntroButtons(vIntro);
-  await ensureCamera();
+  try {
+    bindIntroButtons(vIntro);
+    await ensureCamera();
 
-  // ---------- 1) Firestore → Intro
-  const introDoc = await fetchIntro();
-  if (!introDoc || !introDoc.sources?.length){
-    dbg("intro source not found"); return;
-  }
-  const fmt = pickFormats(introDoc.sources);
-  setSources(vIntro, fmt.webm, fmt.mp4, false);
+    // ---------- 1) Firestore → Intro
+    const introDoc = await fetchIntro();
+    if (!introDoc || !introDoc.sources?.length){
+      dbg("intro source not found");
+      return;
+    }
+    const fmt = pickFormats(introDoc.sources);
+    applySources(vIntro, fmt); // HLS-ийг зөв MIME-тай, бусдыг setSources-оор
 
-  // ---------- 2) Firestore → Exercises (байршлаар)
-  const locParam = new URL(location.href).searchParams.get("loc") || "";
-  const locationId = await resolveLocationId(locParam);
-  EX_LIST = locationId ? await fetchExercisesByLocation(locationId) : [];
-  SELECTED_EX = EX_LIST?.[0] || null;
+    // ---------- 2) Firestore → Exercises (байршлаар)
+    const locParam = new URL(location.href).searchParams.get("loc") || "";
+    const locationId = await resolveLocationId(locParam);
+    EX_LIST = locationId ? await fetchExercisesByLocation(locationId) : [];
+    SELECTED_EX = EX_LIST?.[0] || null;
 
-  // ---------- 3) Intro видеог AR plane дээр байрлуулж тоглуулах
-  const texIntro = videoTexture(vIntro);
-  if (fmt.isSbs) { // SBS бол шэйдэр
-    vIntro.hidden = false;
-    vIntro.onloadedmetadata = ()=>fitPlaneToVideo(vIntro);
-    planeUseShader(texIntro);
-  } else {
-    planeUseMap(texIntro);
-    if (vIntro.readyState>=1) fitPlaneToVideo(vIntro);
-    else vIntro.addEventListener("loadedmetadata", ()=>fitPlaneToVideo(vIntro), { once:true });
-  }
+    // ---------- 3) Intro видеог AR plane дээр байрлуулж тоглуулах
+    const texIntro = videoTexture(vIntro);
+    if (fmt.isSbs) { // SBS бол шэйдэр
+      vIntro.hidden = false;
+      vIntro.onloadedmetadata = ()=>fitPlaneToVideo(vIntro);
+      planeUseShader(texIntro);
+    } else {
+      planeUseMap(texIntro);
+      if (vIntro.readyState>=1) fitPlaneToVideo(vIntro);
+      else vIntro.addEventListener("loadedmetadata", ()=>fitPlaneToVideo(vIntro), { once:true });
+    }
 
-  currentVideo = vIntro;
+    currentVideo = vIntro;
 
-  // iOS autoplay policy-д тааруулж эхлүүлэх
-  try { vIntro.muted=false; await vIntro.play(); btnUnmute.style.display="none"; }
-  catch {
-    try { vIntro.muted=true; await vIntro.play(); btnUnmute.style.display="inline-block"; }
-    catch(e){ if(!fromTap){ tapLay.style.display="grid"; throw e; } }
-  }
+    // iOS autoplay policy-д тааруулж эхлүүлэх
+    try { vIntro.muted=false; await vIntro.play(); btnUnmute.style.display="none"; }
+    catch {
+      try { vIntro.muted=true; await vIntro.play(); btnUnmute.style.display="inline-block"; }
+      catch(e){ if(!fromTap){ tapLay.style.display="grid"; throw e; } }
+    }
 
-  applyScale();
-  dbg("intro playing");
+    applyScale();
+    dbg("intro playing");
 
-  // 🔄 GPS watch асаах (интро явж байх хугацаанд)
-  try{
-    startGeoWatch((pos, err)=>{
-      if (err) { dbg("GPS watch error: " + (err?.message||err)); return; }
-      dbg(fmtLoc(pos));
-    });
-  }catch(e){ dbg("GPS watch failed: " + (e?.message||e)); }
-
-  // Интро дуусахад: sticky + том меню
-  vIntro.onended = () => {
-    introDone = true; // ✅ Intro played бүрэн
-    try {
-      ["ex","gr","kn"].forEach(id=>{
-        const el = document.getElementById("ib"+({ex:"Exercise",gr:"Growth",kn:"Knowledge"})[id]);
-        el?.classList.add("mini");
+    // 🔄 GPS watch асаах (интро явж байх хугацаанд)
+    try{
+      startGeoWatch((pos, err)=>{
+        if (err) { dbg("GPS watch error: " + (err?.message||err)); return; }
+        dbg(fmtLoc(pos));
       });
-    } catch {}
-    if (!EX_LIST?.length) dbg("no exercises for this location");
-    showMenuOverlay();
-    dbg("intro ended → menu shown; intro buttons sticky.");
-  };
+    }catch(e){ dbg("GPS watch failed: " + (e?.message||e)); }
+
+    // Интро дуусахад: sticky + том меню
+    vIntro.onended = () => {
+      introDone = true; // ✅ Intro played бүрэн
+      try {
+        ["ex","gr","kn"].forEach(id=>{
+          const el = document.getElementById("ib"+({ex:"Exercise",gr:"Growth",kn:"Knowledge"})[id]);
+          el?.classList.add("mini");
+        });
+      } catch {}
+      if (!EX_LIST?.length) dbg("no exercises for this location");
+      showMenuOverlay();
+      dbg("intro ended → menu shown; intro buttons sticky.");
+    };
+  } finally {
+    // Интро эхлүүлж чадаагүй / эрт return хийсэн тохиолдолд дахин оролдож болохоор болгоно
+    if (!introDone) introStarting = false;
+  }
 }
 
 async function startExerciseDirect(){
@@ -178,7 +183,7 @@ async function startExerciseDirect(){
     dbg("no selected exercise"); return;
   }
   const fmtEx = pickFormats(SELECTED_EX.sources || []);
-  setSources(vEx, fmtEx.webm, fmtEx.mp4, false);
+  applySources(vEx, fmtEx);
 
   const texEx = videoTexture(vEx);
   if (fmtEx.isSbs) planeUseShader(texEx); else planeUseMap(texEx);
@@ -210,6 +215,31 @@ function planeUseShader(tex){
   });
 }
 
+/**
+ * Formats → <video> эх сурвалж тавигч
+ * - iOS дээр HLS байвал зөв MIME-тайгаар нэн тэргүүнд тавина
+ * - бусад тохиолдолд ar.js → setSources(webm, mp4, forceMP4) ашиглана
+ */
+function applySources(videoEl, fmt){
+  if (!videoEl) return;
+
+  // HLS (iOS Safari native)
+  if (fmt?.type === "hls" && fmt?.mp4) {
+    try {
+      videoEl.innerHTML = "";
+      const s = document.createElement("source");
+      s.src = fmt.mp4; // энд m3u8 ирсэн байгаа
+      s.type = "application/vnd.apple.mpegurl";
+      videoEl.appendChild(s);
+      videoEl.load();
+      return;
+    } catch {}
+  }
+
+  // Бусад: WEBM/MP4
+  setSources(videoEl, fmt?.webm || "", fmt?.mp4 || "", false);
+}
+
 // Formats → setSources-т таарах байдлаар салгаж авах
 // app.js доторх helpers — HLS-ийг iOS-д 1-т тавина
 function pickFormats(srcs){
@@ -228,15 +258,14 @@ function pickFormats(srcs){
     if (m.mp4)     return { webm: "", mp4: m.mp4,     isSbs:false, type:"mp4" };
     if (m.webm)    return { webm: m.webm, mp4:"",     isSbs:false, type:"webm" };
   }
-  if (m.webm)     return { webm: m.webm, mp4:"",      isSbs:false, type:"webm" };
-  if (m.mp4)      return { webm:"",     mp4: m.mp4,   isSbs:false, type:"mp4" };
-  if (m.mp4_sbs)  return { webm:"",     mp4: m.mp4_sbs,isSbs:true, type:"mp4" };
+  if (m.webm)     return { webm: m.webm, mp4:"",       isSbs:false, type:"webm" };
+  if (m.mp4)      return { webm:"",      mp4: m.mp4,   isSbs:false, type:"mp4" };
+  if (m.mp4_sbs)  return { webm:"",      mp4: m.mp4_sbs,isSbs:true, type:"mp4" };
   return { webm:"", mp4:"", isSbs:false, type:"" };
 }
 
-
 // Unmute
-btnUnmute.addEventListener("click", async ()=>{
+btnUnmute?.addEventListener("click", async ()=>{
   try {
     if (!currentVideo) return;
     currentVideo.muted=false;
